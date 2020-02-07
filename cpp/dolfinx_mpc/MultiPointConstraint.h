@@ -73,6 +73,9 @@ namespace dolfinx_mpc
   std::pair<std::vector<std::int64_t>, std::vector<std::int64_t>>
 	cell_to_slave_mapping();
 
+  /// Return a modified index map with the ghost data available
+  std::shared_ptr<dolfinx::common::IndexMap> generate_index_map();
+
   /// Return the global to local mapping of a master coefficient it it is not on this processor
   std::unordered_map<int, int> glob_to_loc_ghosts();
 

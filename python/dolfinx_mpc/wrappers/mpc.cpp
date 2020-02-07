@@ -33,6 +33,8 @@ void mpc(py::module &m) {
            &dolfinx_mpc::MultiPointConstraint::masters_and_coefficients)
       .def("slaves", &dolfinx_mpc::MultiPointConstraint::slaves)
       .def("master_offsets", &dolfinx_mpc::MultiPointConstraint::master_offsets)
+      .def("generate_index_map",
+           &dolfinx_mpc::MultiPointConstraint::generate_index_map)
       .def(
           "generate_petsc_matrix",
           [](dolfinx_mpc::MultiPointConstraint &self,
