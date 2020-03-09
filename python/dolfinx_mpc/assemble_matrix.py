@@ -23,6 +23,7 @@ def assemble_matrix(form, multipointconstraint, bcs=None):
         for bc in bcs:
             # Extract local index of possible sub space
             bc_array = numpy.append(bc_array, bc.dof_indices[:, 0])
+
     # Get data from function space
     assert(form.arguments()[0].ufl_function_space() ==
            form.arguments()[1].ufl_function_space())
@@ -30,8 +31,10 @@ def assemble_matrix(form, multipointconstraint, bcs=None):
     dofmap = V.dofmap
     dofs = dofmap.dof_array
     indexmap = dofmap.index_map
+    global_indices = numpy.array(indexmap.global_indices(False),
+                                 dtype=numpy.int64)
     ghost_info = (indexmap.local_range, indexmap.block_size,
-                  indexmap.global_indices(False), indexmap.ghosts)
+                  global_indices, indexmap.ghosts)
 
     # Get data from mesh
     pos = V.mesh.geometry.dofmap().offsets()
@@ -122,11 +125,7 @@ def in_numpy_array(array, value):
     """
     Convenience function replacing "value in array" for numpy arrays in numba
     """
-    in_array = False
-    for item in array:
-        if item == value:
-            in_array = True
-            break
+    in_array = False if len(numpy.flatnonzero(array == value)) == 0 else True
     return in_array
 
 
@@ -200,7 +199,21 @@ def assemble_matrix_numba(A, kernel, mesh, gdim, coeffs, constants,
     sink(A_local, local_pos)
 
 
-@numba.njit
+@numba.njit(cache=True)
+def slave_global_to_local_pos(slave, global_indices, local_pos):
+    """
+    Find the local index of a slave in a given cell
+    """
+    local_index = -1
+    for k in range(len(local_pos)):
+        if global_indices[local_pos[k]] == slave:
+            local_index = k
+            break
+    assert(local_index != -1)
+    return local_index
+
+
+@numba.njit()
 def modify_mpc_cell(A, slave_cell_index, A_local, local_pos,
                     mpc, ghost_info, num_dofs_per_element):
     """
@@ -237,37 +250,32 @@ def modify_mpc_cell(A, slave_cell_index, A_local, local_pos,
                                 cell_to_slave_offset[slave_cell_index+1]]
 
     # Find which slaves belongs to each cell
-    global_slaves = []
+    global_slave_indices = []
     for gi, slave in enumerate(slaves):
         if in_numpy_array(cell_slaves, slaves[gi]):
-            global_slaves.append(gi)
-    for s_0 in range(len(global_slaves)):
-        slave_index = global_slaves[s_0]
+            global_slave_indices.append(gi)
+
+    for s_0 in range(len(global_slave_indices)):
+        slave_index = global_slave_indices[s_0]
         cell_masters = masters_local[offsets[slave_index]:
                                      offsets[slave_index+1]]
         cell_coeffs = coefficients[offsets[slave_index]:
                                    offsets[slave_index+1]]
         # Variable for local position of slave dof
-        slave_local = -1
-        for k in range(len(local_pos)):
-            g_pos = global_indices[local_pos[k]]
-            if g_pos == slaves[slave_index]:
-                slave_local = k
-                break
-        assert slave_local != -1
+        slave_local = slave_global_to_local_pos(slaves[slave_index],
+                                                global_indices, local_pos)
 
         # Loop through each master dof to take individual contributions
-        for m_0 in range(len(cell_masters)):
-            ce = cell_coeffs[m_0]
+        for (d, (master, coeff)) in enumerate(zip(cell_masters, cell_coeffs)):
 
             # Reset local contribution matrices
             A_row.fill(0.0)
             A_col.fill(0.0)
 
             # Move local contributions with correct coefficients
-            A_row[:, 0] = ce*A_local_copy[:, slave_local]
-            A_col[0, :] = ce*A_local_copy[slave_local, :]
-            A_master[0, 0] = ce*A_row[slave_local, 0]
+            A_row[:, 0] = coeff*A_local_copy[:, slave_local]
+            A_col[0, :] = coeff*A_local_copy[slave_local, :]
+            A_master[0, 0] = coeff*A_row[slave_local, 0]
 
             # Remove row contribution going to central addition
             A_col[0, slave_local] = 0
@@ -280,34 +288,29 @@ def modify_mpc_cell(A, slave_cell_index, A_local, local_pos,
             # If one of the other local indices are a slave,
             # move them to the corresponding master dof
             # and multiply by the corresponding coefficient
-            for o_slave_index in range(len(global_slaves)):
-                other_slave = global_slaves[o_slave_index]
+            for o_slave_index in range(len(global_slave_indices)):
+                other_slave = global_slave_indices[o_slave_index]
                 # If not another slave, continue
                 if other_slave == slave_index:
                     continue
                 # Find local index of the other slave
-                o_slave_local = -1
-                for k in range(len(local_pos)):
-                    if global_indices[local_pos[k]] == slaves[other_slave]:
-                        o_slave_local = k
-                        break
-                assert(o_slave_local != -1)
-
-                other_cell_masters = masters_local[offsets[other_slave]:
-                                                   offsets[other_slave+1]]
+                o_slave_local = slave_global_to_local_pos(slaves[other_slave],
+                                                          global_indices,
+                                                          local_pos)
+                o_masters = masters_local[offsets[other_slave]:
+                                          offsets[other_slave+1]]
                 o_coeffs = coefficients[offsets[other_slave]:
                                         offsets[other_slave+1]]
                 # Find local index of other masters
-                for m_1 in range(len(other_cell_masters)):
+                for o_master, o_coeff in zip(o_masters, o_coeffs):
                     A_m0m1.fill(0)
                     A_m1m0.fill(0)
-                    o_c = o_coeffs[m_1]
-                    A_m0m1[0, 0] = o_c*A_row[o_slave_local, 0]
-                    A_m1m0[0, 0] = o_c*A_col[0, o_slave_local]
+                    A_m0m1[0, 0] = o_coeff*A_row[o_slave_local, 0]
+                    A_m1m0[0, 0] = o_coeff*A_col[0, o_slave_local]
                     A_row[o_slave_local, 0] = 0
                     A_col[0, o_slave_local] = 0
-                    m0_index[0] = cell_masters[m_0]
-                    m1_index[0] = other_cell_masters[m_1]
+                    m0_index[0] = master
+                    m1_index[0] = o_master
 
                     # Only insert once per pair,
                     # but remove local values for all slaves
@@ -323,8 +326,8 @@ def modify_mpc_cell(A, slave_cell_index, A_local, local_pos,
 
             # Add slave column to master column
             mpc_pos = local_pos.copy()
-            mpc_pos[slave_local] = cell_masters[m_0]
-            m0_index[0] = cell_masters[m_0]
+            mpc_pos[slave_local] = master
+            m0_index[0] = master
 
             ierr_row = set_values_local(A,
                                         num_dofs_per_element, ffi_fb(mpc_pos),
@@ -347,21 +350,22 @@ def modify_mpc_cell(A, slave_cell_index, A_local, local_pos,
 
             assert(ierr_m0m0 == 0)
 
-        # Add contributions for different masters on the same cell
-        for m_0 in range(len(cell_masters)):
-            for m_1 in range(m_0+1, len(cell_masters)):
+            # Add contributions for different masters on the same cell
+            for (o_master, o_coeff) in zip(cell_masters[d+1:],
+                                           cell_coeffs[d+1:]):
                 A_c0.fill(0.0)
-                c0, c1 = cell_coeffs[m_0], cell_coeffs[m_1]
-                A_c0[0, 0] += c0*c1*A_local_copy[slave_local, slave_local]
-                m0_index[0] = cell_masters[m_0]
-                m1_index[0] = cell_masters[m_1]
+                A_c0[0, 0] += coeff*o_coeff*A_local_copy[slave_local,
+                                                         slave_local]
+                m0_index[0] = master
+                m1_index[0] = o_master
                 ierr_c0 = set_values_local(A,
                                            1, ffi_fb(m0_index),
                                            1, ffi_fb(m1_index),
                                            ffi_fb(A_c0), mode)
                 assert(ierr_c0 == 0)
                 A_c1.fill(0.0)
-                A_c1[0, 0] += c0*c1*A_local_copy[slave_local, slave_local]
+                A_c1[0, 0] += coeff*o_coeff*A_local_copy[slave_local,
+                                                         slave_local]
                 ierr_c1 = set_values_local(A,
                                            1, ffi_fb(m1_index),
                                            1, ffi_fb(m0_index),
