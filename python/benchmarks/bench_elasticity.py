@@ -148,7 +148,8 @@ def demo_elasticity(r_lvl=1):
 
     def monitor(ksp, its, rnorm, r_lvl=-1):
         if MPI.COMM_WORLD.rank == 0:
-            print("{}: Iteration: {}, rel. residual: {}".format(r_lvl, its, rnorm))
+            print("{}: Iteration: {}, rel. residual: {}"
+                  .format(r_lvl, its, rnorm))
 
     def pmonitor(ksp, its, rnorm):
         return monitor(ksp, its, rnorm, r_lvl=r_lvl)
@@ -197,8 +198,8 @@ def demo_elasticity(r_lvl=1):
 
     def org_monitor(ksp, its, rnorm, r_lvl=-1):
         if MPI.COMM_WORLD.rank == 0:
-            print("Orginal: {}: Iteration: {}, rel. residual: {}".format(
-                r_lvl, its, rnorm))
+            print("Orginal: {}: Iteration: {}, rel. residual: {}"
+                  .format(r_lvl, its, rnorm))
 
     def org_pmonitor(ksp, its, rnorm):
         return org_monitor(ksp, its, rnorm, r_lvl=r_lvl)
