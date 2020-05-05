@@ -291,7 +291,8 @@ def demo_elasticity(r_lvl=1):
     # # Compare LHS, RHS and solution with reference values
     # dolfinx_mpc.utils.compare_matrices(reduced_A, A_mpc_np, slaves)
     # dolfinx_mpc.utils.compare_vectors(reduced_L, mpc_vec_np, slaves)
-    # assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+    # assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:
+    #                                       uh.owner_range[1]])
 
     # for i in range(len(masters)):
     #     if uh.owner_range[0] < masters[i] and masters[i] < uh.owner_range[1]:
@@ -309,7 +310,7 @@ def demo_elasticity(r_lvl=1):
 
 
 if __name__ == "__main__":
-    for i in range(1):
+    for i in range(6):
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
         # dolfinx.log.log(dolfinx.log.LogLevel.INFO,
         #                 "Run {0:1d} in progress".format(i))
