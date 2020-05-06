@@ -1,4 +1,3 @@
-from IPython import embed
 import dolfinx.cpp
 import dolfinx.io
 import dolfinx_mpc
@@ -14,7 +13,7 @@ from mpi4py import MPI
 # Length, width and rotation of channel
 L = 1
 H = 1
-theta = np.pi/8
+theta = np.pi/3
 r_matrix = pygmsh.helpers.rotation_matrix([0, 0, 1], theta)
 
 
@@ -347,7 +346,8 @@ def stokes(res):
     # Compare LHS, RHS and solution with reference values
     # dolfinx_mpc.utils.compare_matrices(reduced_A, A_mpc_np, slaves)
     # dolfinx_mpc.utils.compare_vectors(reduced_L, mpc_vec_np, slaves)
-    # assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+    # assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:
+    # uh.owner_range[1]])
 
     def u_ex_lambda(x):
         r_inverse = pygmsh.helpers.rotation_matrix([0, 0, 1], -theta)
