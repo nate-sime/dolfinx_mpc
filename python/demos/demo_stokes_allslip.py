@@ -359,23 +359,31 @@ def stokes(res):
 
     u_L2 = np.sqrt(dolfinx.fem.assemble_scalar(
         ufl.inner(u-u_ex, u-u_ex)*ufl.dx))
+    u_H1 = np.sqrt(dolfinx.fem.assemble_scalar(
+        (ufl.inner(u-u_ex, u-u_ex) +
+         ufl.inner(ufl.grad(u-u_ex), ufl.grad(u-u_ex)))*ufl.dx))
     p_L2 = np.sqrt(dolfinx.fem.assemble_scalar(
         ufl.inner(p-p0, p-p0)*ufl.dx))
     print("Velocity L2 error:", u_L2)
     print("Pressure L2 error:", p_L2)
-    return u_L2, p_L2
+    print("Velocity H1 error:", u_H1)
+    return u_L2, p_L2, u_H1
 
 
 error_u = []
 error_p = []
+error_h1 = []
 h = [0.1*0.5**i for i in range(4)]
 for res in h:
-    u_L2, p_L2 = stokes(res)
+    u_L2, p_L2, u_h1 = stokes(res)
     error_u.append(u_L2)
     error_p.append(p_L2)
+    error_h1.append(u_h1)
 error_u = np.array(error_u)
 error_p = np.array(error_p)
+error_h1 = np.array(error_h1)
 h = np.array(h)
 print("U rate", np.log(error_u[1:]/error_u[:-1])/np.log(h[1:]/h[:-1]))
 print("P rate", np.log(error_p[1:]/error_p
                        [:-1])/np.log(h[1:]/h[:-1]))
+print("U H1 rate", np.log(error_h1[1:]/error_h1[:-1])/np.log(h[1:]/h[:-1]))
