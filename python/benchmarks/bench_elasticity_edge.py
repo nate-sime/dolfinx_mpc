@@ -67,12 +67,13 @@ def build_elastic_nullspace(V):
 
 
 def demo_elasticity(r_lvl=1):
-    mesh = dolfinx.UnitCubeMesh(MPI.COMM_WORLD, 4, 4, 4)
+    N = 4
+    mesh = dolfinx.UnitCubeMesh(MPI.COMM_WORLD, N, N, N)
     for i in range(r_lvl):
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.INFO)
         mesh = dolfinx.mesh.refine(mesh, redistribute=True)
         # dolfinx.log.set_log_level(dolfinx.log.LogLevel.ERROR)
-
+        N *= 2
     fdim = mesh.topology.dim - 1
     V = dolfinx.VectorFunctionSpace(mesh, ("Lagrange", 1))
 
@@ -90,7 +91,58 @@ def demo_elasticity(r_lvl=1):
     bc = dolfinx.fem.DirichletBC(u_bc, topological_dofs)
     bcs = [bc]
 
+    def slaves_locater(x):
+        return np.logical_and(np.isclose(x[0], 1), np.isclose(x[2], 0))
+
+    def master_locater(x):
+        return np.logical_and(np.isclose(x[0], 1), np.isclose(x[2], 1))
+
+    # Find all masters and slaves
+    slave_dofs = dolfinx.fem.locate_dofs_geometrical(
+        (V.sub(2), V.sub(2).collapse()), slaves_locater).T[0]
+    master_dofs = dolfinx.fem.locate_dofs_geometrical(
+        (V.sub(2), V.sub(2).collapse()), master_locater).T[0]
+
+    def create_master_slave_map(master_dofs, slave_dofs):
+        timer = dolfinx.common.Timer("MPC: Create slave-master relationship")
+        x = V.tabulate_dof_coordinates()
+        local_min = (V.dofmap.index_map.local_range[0]
+                     * V.dofmap.index_map.block_size)
+        local_max = (V.dofmap.index_map.local_range[1]
+                     * V.dofmap.index_map.block_size)
+        x_slaves = x[slave_dofs, :]
+        x_masters = x[master_dofs, :]
+        masters = np.zeros(N+1, dtype=np.int64)
+        slaves = np.zeros(N+1, dtype=np.int64)
+        for i in range(N+1):
+            if len(slave_dofs) > 0:
+                slave_coord = [1, i/N, 0]
+                slave_diff = np.abs(x_slaves-slave_coord).sum(axis=1)
+                if np.isclose(slave_diff[slave_diff.argmin()], 0):
+                    # Only add if owned by processor
+                    if (slave_dofs[slave_diff.argmin()]
+                            < local_max - local_min):
+                        slaves[i] = (slave_dofs[slave_diff.argmin()]
+                                     + local_min)
+                if len(master_dofs) > 0:
+                    master_coord = [1, i/N, 1]
+                    master_diff = np.abs(x_masters-master_coord).sum(axis=1)
+                    if np.isclose(master_diff[master_diff.argmin()], 0):
+                        # Only add if owned by processor
+                        if (master_dofs[master_diff.argmin()] <
+                                local_max-local_min):
+                            masters[i] = (master_dofs[master_diff.argmin()]
+                                          + local_min)
+        timer.stop()
+        return slaves, masters
+    snew, mnew = create_master_slave_map(master_dofs, slave_dofs)
+    masters = sum(MPI.COMM_WORLD.allgather(mnew))
+    slaves = sum(MPI.COMM_WORLD.allgather(snew))
+    offsets = np.array(range(len(slaves)+1), dtype=np.int64)
+    coeffs = 0.2*np.ones(len(masters), dtype=np.float64)
+
     # Create traction meshtag
+
     def traction_boundary(x):
         return np.isclose(x[0], 1)
     t_facets = dolfinx.mesh.locate_entities_geometrical(mesh, fdim,
@@ -124,14 +176,6 @@ def demo_elasticity(r_lvl=1):
                                  subdomain_data=mt, subdomain_id=1)
 
     # Create MPC
-    dof_at = dolfinx_mpc.dof_close_to
-    s_m_c = {lambda x: dof_at(x, [1, 0, 0]): {
-        lambda x: dof_at(x, [1, 0, 1]): 0.5}, lambda x: dof_at(x, [1, 1, 0]): {
-        lambda x: dof_at(x, [1, 1, 1]): 0.5}}
-    (slaves, masters,
-     coeffs, offsets) = dolfinx_mpc.slave_master_structure(V, s_m_c,
-                                                           2, 2)
-
     mpc = dolfinx_mpc.cpp.mpc.MultiPointConstraint(V._cpp_object, slaves,
                                                    masters, coeffs, offsets)
     # Setup MPC system
@@ -203,8 +247,8 @@ def demo_elasticity(r_lvl=1):
 
     def org_monitor(ksp, its, rnorm, r_lvl=-1):
         if MPI.COMM_WORLD.rank == 0:
-            print("Orginal: {}: Iteration: {}, rel. residual: {}"
-                  .format(r_lvl, its, rnorm))
+            print("Orginal: {}: Iteration: {}, rel. residual: {}".format(
+                  r_lvl, its, rnorm))
 
     def org_pmonitor(ksp, its, rnorm):
         return org_monitor(ksp, its, rnorm, r_lvl=r_lvl)
