@@ -283,6 +283,7 @@ MultiPointConstraint::generate_index_map()
                 // Check if other master is not locally owned
                 if (_master_owner_ranks->links(k)[l] != mpi_rank)
                 {
+                  assert(false);
                   const int other_master_as_int = _masters->links(k)[l];
                   const std::div_t other_div
                       = std::div(other_master_as_int, block_size);
