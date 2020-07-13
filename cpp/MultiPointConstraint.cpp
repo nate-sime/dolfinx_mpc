@@ -347,8 +347,8 @@ MultiPointConstraint::generate_index_map()
 }
 
 /// Create MPC specific sparsity pattern
-dolfinx::la::SparsityPattern
-MultiPointConstraint::create_sparsity_pattern(const dolfinx::fem::Form& a)
+dolfinx::la::SparsityPattern MultiPointConstraint::create_sparsity_pattern(
+    const dolfinx::fem::Form<PetscScalar>& a)
 {
   LOG(INFO) << "Generating MPC sparsity pattern";
   dolfinx::common::Timer timer("MPC-INIT: Sparsitypattern Total");
