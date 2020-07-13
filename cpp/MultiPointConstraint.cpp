@@ -283,7 +283,6 @@ MultiPointConstraint::generate_index_map()
                 // Check if other master is not locally owned
                 if (_master_owner_ranks->links(k)[l] != mpi_rank)
                 {
-                  assert(false);
                   const int other_master_as_int = _masters->links(k)[l];
                   const std::div_t other_div
                       = std::div(other_master_as_int, block_size);
@@ -298,6 +297,7 @@ MultiPointConstraint::generate_index_map()
                   if ((is_old_ghost == old_ghosts.end())
                       && (is_new_ghost == additional_ghosts.end()))
                   {
+                    assert(false);
                     additional_ghosts.push_back(other_index);
                     additional_ghost_ranks.push_back(
                         _master_owner_ranks->links(k)[l]);
