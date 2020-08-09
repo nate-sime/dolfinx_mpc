@@ -38,14 +38,11 @@ def test_mpc_assembly(master_point, degree, celltype):
     mpc = dolfinx_mpc.MultiPointConstraint(V)
     mpc.create_general_constraint(s_m_c)
     mpc.finalize()
+
     b = dolfinx_mpc.assemble_vector(rhs, mpc)
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
                   mode=PETSc.ScatterMode.REVERSE)
-
-    mpc_vec_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
     b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
-
-    assert(np.allclose(mpc_vec_np, b_np))
 
     # Reduce system with global matrix K after assembly
     L_org = dolfinx.fem.assemble_vector(rhs)

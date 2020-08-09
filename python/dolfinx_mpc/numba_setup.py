@@ -134,6 +134,8 @@ if MPI.COMM_WORLD.Get_rank() == 0:
         int MatSetValues(void* mat, PetscInt nrow, const PetscInt* irow,
                                 PetscInt ncol, const PetscInt* icol,
                                 const PetscScalar* y, InsertMode addv);
+        int MatGetValues(void* mat, PetscInt m,const PetscInt* idxm,PetscInt n,
+                          const PetscInt* idxn,PetscScalar* v);
     """)
     ffibuilder.set_source(module_name, """
         # include "petscmat.h"
@@ -156,11 +158,12 @@ module = importlib.import_module("dolfinx_mpc."+module_name)
 cffi_support.register_module(module)
 MatSetValues_api = module.lib.MatSetValues
 MatSetValuesLocal_api = module.lib.MatSetValuesLocal
-
+MatGetValues_api = module.lib.MatGetValues
 cffi_support.register_type(module.ffi.typeof("PetscScalar"),
                            numba_scalar_t)
 set_values = MatSetValues_api
 set_values_local = MatSetValuesLocal_api
+get_values = MatGetValues_api
 mode = PETSc.InsertMode.ADD_VALUES
 insert = PETSc.InsertMode.INSERT_VALUES
 
