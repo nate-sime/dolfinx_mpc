@@ -16,7 +16,7 @@ import dolfinx.log
 
 # Create mesh and function space
 mesh = dolfinx.UnitSquareMesh(
-    MPI.COMM_WORLD, 1, 1, dolfinx.cpp.mesh.CellType.quadrilateral)
+    MPI.COMM_WORLD, 2, 2, dolfinx.cpp.mesh.CellType.quadrilateral)
 V = dolfinx.FunctionSpace(mesh, ("Lagrange", 1))
 
 # Test against generated code and general assembler
@@ -44,29 +44,30 @@ bottom_dofs = dolfinx.fem.locate_dofs_geometrical(V, bottom_corner)
 bc_bottom = dolfinx.fem.DirichletBC(u_bc, bottom_dofs)
 bc_corner = dolfinx.fem.DirichletBC(
     u_bc, dolfinx.fem.locate_dofs_geometrical(V, corner))
-bcs = [bc_bottom, bc_corner]
+bcs = [bc_bottom]  # , bc_corner]
 
 
 def l2b(li):
     return np.array(li, dtype=np.float64).tobytes()
 
 
-s_m_c = {
-
-    l2b([1, 1]): {l2b([0, 0]): 3,
-                  l2b([1, 0]): 5},
-    l2b([0, 1]): {l2b([0, 0]): 2}}
+s_m_c = {l2b([1, 1]): {
+    l2b([0, 0]): 5},
+    l2b([0, 1]): {l2b([1, 0]): 2}}
 mpc = dolfinx_mpc.MultiPointConstraint(V)
 mpc.create_general_constraint(s_m_c)
 mpc.finalize()
-
+print(V.dim, mpc.slaves(), mpc.masters_local().array)
 A = dolfinx_mpc.assemble_matrix(a, mpc, bcs=bcs)
-b = dolfinx_mpc.assemble_vector(rhs, mpc)
-print(0, b.array)
-AL = dolfinx_mpc.apply_lifting(b, [a], mpc, [bcs])
+b = dolfinx_mpc.assemble_vector(rhs, mpc, bcs=bcs)
+# dolfinx.fem.apply_lifting(b, [a], [bcs])
+# b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
+#               mode=PETSc.ScatterMode.REVERSE)
+# dolfinx.fem.set_bc(b, bcs)
+dolfinx_mpc.apply_lifting(b, [a], mpc, [bcs])
 b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
               mode=PETSc.ScatterMode.REVERSE)
-dolfinx.fem.set_bc(b, bcs)
+
 solver = PETSc.KSP().create(MPI.COMM_WORLD)
 solver.setType(PETSc.KSP.Type.PREONLY)
 solver.getPC().setType(PETSc.PC.Type.LU)
@@ -80,66 +81,31 @@ uh.ghostUpdate(addv=PETSc.InsertMode.INSERT,
                mode=PETSc.ScatterMode.FORWARD)
 mpc.backsubstitution(uh)
 
-# Transfer data from the MPC problem to numpy arrays for comparison
-A_np = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A)
-print("A", A_np)
-b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
 
-print("Solution", uh.array)
-exit()
-
-
-A_mpc_np = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A)
-print(A_mpc_np)
-
-# dolfinx.fem.apply_lifting(b, [a], [bcs])
-# b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
-#               mode=PETSc.ScatterMode.REVERSE)
-# dolfinx.fem.set_bc(b, bcs)
-
-
-# Create globally reduced system with numpy
 # LHS
 K = dolfinx_mpc.utils.create_transformation_matrix(V, mpc)
 A_org = dolfinx.fem.assemble_matrix(a, bcs=bcs)
 A_org.assemble()
 A_org_np = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A_org)
 reduced_A = np.matmul(np.matmul(K.T, A_org_np), K)
-reduced_A[0] = 1
-
-
-A2 = dolfinx.fem.assemble_matrix(a)
-A2.assemble()
-A2 = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A2)
-
-g = np.zeros(A2.shape[0], dtype=PETSc.ScalarType)
-g[bcs[0].dof_indices] = bcs[0].value.vector.array[bcs[0].dof_indices[:, 0]]
-Ag = np.dot(A2, g)
-print("AG", Ag)
-# Compare
-
-# dolfinx_mpc.utils.compare_matrices(reduced_A, A_mpc_np, mpc)
-print("Slaves", mpc.slaves(), "masters",  mpc.masters_local().array)
 
 # RHS
 L_org = dolfinx.fem.assemble_vector(rhs)
 dolfinx.fem.apply_lifting(L_org, [a], [bcs])
 L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
                   mode=PETSc.ScatterMode.REVERSE)
-#dolfinx.fem.set_bc(L_org, bcs)
+dolfinx.fem.set_bc(L_org, bcs)
 vec = dolfinx_mpc.utils.PETScVector_to_global_numpy(L_org)
 reduced_L = np.dot(K.T, vec)
-reduced_L[0] = 2
-print(reduced_A, reduced_L)
 
-# Solve linear system
 d = np.linalg.solve(reduced_A, reduced_L)
-# Backsubstitution to full solution vector
 uh_numpy = np.dot(K, d)
-print("NUMPY solution", uh_numpy)
 
-
-print(b.array, "\n", reduced_L)
-exit(1)
+# Transfer data from the MPC problem to numpy arrays for comparison
+A_mpc_np = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A)
 b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
+print(reduced_L, "\n", b_np)
+dolfinx_mpc.utils.compare_matrices(reduced_A, A_mpc_np, mpc)
 dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
+assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:
+                                      uh.owner_range[1]])

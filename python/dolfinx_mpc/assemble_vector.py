@@ -9,6 +9,7 @@ import numpy
 import dolfinx
 import dolfinx.common
 import dolfinx.log
+import warnings
 
 from .assemble_matrix import in_numpy_array, pack_facet_info
 from .numba_setup import PETSc, ffi
@@ -17,11 +18,11 @@ Timer = dolfinx.common.Timer
 
 
 def assemble_vector(form, constraint,
-                    bcs=[numpy.array([]), numpy.array([])]):
+                    bcs=[]):
     dolfinx.log.log(dolfinx.log.LogLevel.INFO, "Assemble MPC vector")
     timer_vector = Timer("~MPC: Assemble vector")
-    bc_dofs, bc_values = bcs
-    V = form.arguments()[0].ufl_function_space()
+
+    V = constraint.V_mpc
     # Unpack mesh and dofmap data
     pos = V.mesh.geometry.dofmap.offsets
     x_dofs = V.mesh.geometry.dofmap.array
@@ -59,6 +60,25 @@ def assemble_vector(form, constraint,
 
     # Assemble vector with all entries
     dolfinx.cpp.fem.assemble_vector(vector.array_w, cpp_form)
+
+    # If master is DirichletBC, remove local contributions in L
+    # before adding slave contributions
+    bc_dofs = []
+    for bc in bcs:
+        bc_dofs.extend(bc.dof_indices[:, 0])
+    bc_dofs = numpy.array(bc_dofs, dtype=numpy.int32)
+
+    bc_is_master = numpy.flatnonzero(numpy.isin(masters.array, bc_dofs))
+    zero_dofs = masters.array[bc_is_master]
+    if len(zero_dofs) > 0:
+        warnings.warn("Master DOF is a Dirichlet condition. " +
+                      "Use dolfinx_mpc.apply lifting instead of " +
+                      "dolfinx.apply_lifting and dolfinx.fem.set_bc",
+                      category=RuntimeWarning, stacklevel=2)
+        with vector.localForm() as b:
+            for dof in zero_dofs:
+                b[dof] = 0
+
     # Assemble over cells
     subdomain_ids = formintegral.integral_ids(
         dolfinx.fem.IntegralType.cell)
@@ -83,8 +103,7 @@ def assemble_vector(form, constraint,
                                (pos, x_dofs, x), gdim,
                                form_coeffs, form_consts,
                                permutation_info,
-                               dofs, num_dofs_per_element, mpc_data,
-                               (bc_dofs, bc_values))
+                               dofs, num_dofs_per_element, mpc_data)
 
     # Assemble exterior facet integrals
     subdomain_ids = formintegral.integral_ids(
@@ -110,7 +129,7 @@ def assemble_vector(form, constraint,
                                          (permutation_info,
                                              facet_permutation_info), dofs,
                                          num_dofs_per_element,
-                                         mpc_data, (bc_dofs, bc_values))
+                                         mpc_data)
     timer_vector.stop()
     return vector
 
@@ -119,10 +138,9 @@ def assemble_vector(form, constraint,
 def assemble_cells(b, kernel, active_cells, mesh, gdim,
                    coeffs, constants,
                    permutation_info, dofmap, num_dofs_per_element,
-                   mpc, bcs):
+                   mpc):
     """Assemble additional MPC contributions for cell integrals"""
     ffi_fb = ffi.from_buffer
-    (bcs, values) = bcs
 
     # Empty arrays mimicking Nullpointers
     facet_index = numpy.zeros(0, dtype=numpy.int32)
@@ -164,10 +182,9 @@ def assemble_exterior_facets(b, kernel, facet_info, mesh, gdim,
                              coeffs, constants,
                              permutation_info, dofmap,
                              num_dofs_per_element,
-                             mpc, bcs):
+                             mpc):
     """Assemble additional MPC contributions for facets"""
     ffi_fb = ffi.from_buffer
-    (bcs, values) = bcs
 
     cell_perms, facet_perms = permutation_info
 

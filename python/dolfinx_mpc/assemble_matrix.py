@@ -3,6 +3,8 @@
 # This file is part of DOLFINX_MPC
 #
 # SPDX-License-Identifier:    LGPL-3.0-or-later
+import warnings
+
 import numba
 import numpy
 
@@ -95,6 +97,21 @@ def assemble_matrix(form, constraint, bcs=[]):
     offsets = masters.offsets
     mpc_data = (slaves_local, masters_local, coefficients, offsets,
                 slave_cells, cell_to_slave, c_to_s_off)
+
+    # If master is DirichletBC, remove local contributions in L
+    # before adding slave contributions
+    bc_dofs = []
+    for bc in bcs:
+        bc_dofs.extend(bc.dof_indices[:, 0])
+    bc_dofs = numpy.array(bc_dofs, dtype=numpy.int32)
+
+    bc_is_master = numpy.flatnonzero(numpy.isin(masters.array, bc_dofs))
+    zero_dofs = masters.array[bc_is_master]
+    if len(zero_dofs) > 0:
+        warnings.warn("Master DOF is a Dirichlet condition. " +
+                      "You have to supply Dirichlet conditions " +
+                      "to assemble_vector and use a special lifting operator",
+                      category=RuntimeWarning, stacklevel=2)
 
     # Gather BC data
     bc_array = numpy.array([])
@@ -267,7 +284,7 @@ def assemble_cells(A, kernel, active_cells, mesh, gdim, coeffs, constants,
         A_local_copy = A_local.copy()
         # If this slave contains a slave dof, modify local contribution
         modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                              local_pos, mpc, num_dofs_per_element, bcs)
+                              local_pos, mpc, num_dofs_per_element)  # , bcs)
         # Remove already assembled contribution to matrix
         A_contribution = A_local - A_local_copy
         slave_cell_index += 1
@@ -347,7 +364,7 @@ def assemble_exterior_facets(A, kernel, mesh, gdim, coeffs, consts, perm,
         A_local_copy = A_local.copy()
         # If this slave contains a slave dof, modify local contribution
         modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                              local_pos, mpc, num_dofs_per_element, bcs)
+                              local_pos, mpc, num_dofs_per_element)  # , bcs)
 
         # Remove already assembled contribution to matrix
         A_contribution = A_local - A_local_copy
@@ -366,7 +383,7 @@ def assemble_exterior_facets(A, kernel, mesh, gdim, coeffs, consts, perm,
 
 @numba.njit
 def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                          local_pos, mpc, num_dofs_per_element, bcs):
+                          local_pos, mpc, num_dofs_per_element):  # , bcs):
     """
     Modifies A_local as it contains slave degrees of freedom.
     Adds contributions to corresponding master degrees of freedom in A.
@@ -451,23 +468,14 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                     m1_index[0] = other_master
                     # Insert only once per slave pair on each cell
                     if j > i:
-                        if in_numpy_array(bcs, master):
-                            A_m0m1.fill(0)
                         ierr_m0m1 = set_values_local(A, 1, ffi_fb(m0_index),
                                                      1, ffi_fb(m1_index),
                                                      ffi_fb(A_m0m1), mode)
                         assert(ierr_m0m1 == 0)
-                        if in_numpy_array(bcs, other_master):
-                            A_m1m0.fill(0)
                         ierr_m1m0 = set_values_local(A, 1, ffi_fb(m1_index),
                                                      1, ffi_fb(m0_index),
                                                      ffi_fb(A_m1m0), mode)
                         assert(ierr_m1m0 == 0)
-
-            if in_numpy_array(bcs, master):
-                A_row[local_idx] = 0
-                A_col[:] = 0
-                A_master[0] = 0
 
             # Add slave column to master column
             mpc_pos = local_pos.copy()
@@ -503,8 +511,6 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                     A_local_copy[local_idx, local_idx]
                 m0_index[0] = m0
                 m1_index[0] = cell_masters[i_1]
-                if in_numpy_array(bcs, m0):
-                    A_c0.fill(0)
                 ierr_c0 = set_values_local(A,
                                            1, ffi_fb(m0_index),
                                            1, ffi_fb(m1_index),
@@ -513,8 +519,6 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                 A_c1.fill(0.0)
                 A_c1[0, 0] += c0*c1 * \
                     A_local_copy[local_idx, local_idx]
-                if in_numpy_array(bcs, cell_masters[i_1]):
-                    A_c1.fill(0)
                 ierr_c1 = set_values_local(A,
                                            1, ffi_fb(m1_index),
                                            1, ffi_fb(m0_index),
