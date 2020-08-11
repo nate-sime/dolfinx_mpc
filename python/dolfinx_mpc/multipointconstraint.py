@@ -1,3 +1,9 @@
+# Copyright (C) 2020 Jorgen S. Dokken
+#
+# This file is part of DOLFINX_MPC
+#
+# SPDX-License-Identifier:    LGPL-3.0-or-later
+
 import warnings
 
 import dolfinx_mpc.cpp
@@ -94,7 +100,7 @@ class MultiPointConstraint():
         V_cpp = dolfinx.cpp.function.FunctionSpace(self.V.mesh,
                                                    self.V.element,
                                                    self._cpp_object.dofmap())
-        self.V_mpc = dolfinx.FunctionSpace(None, self.V.ufl_element(), V_cpp)
+        self.V = dolfinx.FunctionSpace(None, self.V.ufl_element(), V_cpp)
         self.finalized = True
         # Delete variables that are no longer required
         del (self.local_slaves, self.local_masters,
@@ -213,9 +219,7 @@ class MultiPointConstraint():
         if not self.finalized:
             warnings.warn(
                 "Returning original function space for MultiPointConstraint")
-            return self.V
-        else:
-            return self.V_mpc
+        return self.V
 
     def backsubstitution(self, vector):
 

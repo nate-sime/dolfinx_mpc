@@ -1,8 +1,7 @@
 import numba
-import numpy as np
-
+import numpy
 import dolfinx
-from .assemble_matrix import in_numpy_array
+
 from .numba_setup import PETSc, ffi
 
 Timer = dolfinx.common.Timer
@@ -35,20 +34,21 @@ def apply_lifting(b, a, constraint, bcs, x0=None, scale=1):
     # Convert BC into two flat arrays
     crange = imap.block_size*(imap.size_local + imap.num_ghosts)
     num_local_dofs = imap.block_size*imap.size_local
-    bc_markers = np.full(crange, False)
-    bc_values = np.zeros(crange, dtype=np.float64)
+    bc_markers = numpy.full(crange, False)
+    bc_values = numpy.zeros(crange, dtype=numpy.float64)
     bcs = bcs[0]
     for bc in bcs:
         bc_markers[bc.dof_indices[:, 0]] = True
         bc_values[bc.dof_indices[:, 0]
-                  ] = bc.value.vector.array[bc.dof_indices[:, 0]]
+                  ] = bc.value.x.array()[bc.dof_indices[:, 0]]
 
     # Create C++ form information
     ufc_form = dolfinx.jit.ffcx_jit(a[0])
     cpp_form = dolfinx.Form(a[0])._cpp_object
     assert(cpp_form.rank == 2)
     assert(cpp_form.function_spaces[0] == cpp_form.function_spaces[1])
-    assert(constraint.V._cpp_object == cpp_form.function_spaces[0])
+    assert(constraint.function_space().element ==
+           cpp_form.function_spaces[0].element)
 
     # Create sparsity pattern
     pattern = constraint.create_sparsity_pattern(cpp_form)
@@ -74,15 +74,16 @@ def apply_lifting(b, a, constraint, bcs, x0=None, scale=1):
         permutation_info = V.mesh.topology.get_cell_permutation_info()
     for i in range(num_cell_integrals):
         subdomain_id = subdomain_ids[i]
-        active_cells = np.array(cpp_form.integrals.integral_domains(
-            dolfinx.fem.IntegralType.cell, i), dtype=np.int64)
-        is_slave_cell = np.isin(active_cells, slave_cells)
+        active_cells = numpy.array(cpp_form.integrals.integral_domains(
+            dolfinx.fem.IntegralType.cell, i), dtype=numpy.int64)
+        is_slave_cell = numpy.isin(active_cells, slave_cells)
         cell_kernel = ufc_form.create_cell_integral(
             subdomain_id).tabulate_tensor
-        no_bcs = np.array([], dtype=np.int32)
+        no_bcs = numpy.array([], dtype=numpy.int32)
         with b.localForm() as vec:
             apply_lifting_numba(
-                np.asarray(vec), gdim, cell_kernel, form_coeffs, form_consts,
+                numpy.asarray(
+                    vec), gdim, cell_kernel, form_coeffs, form_consts,
                 permutation_info, dofs, num_dofs_per_element,
                 active_cells, is_slave_cell, (pos, x_dofs, x),
                 mpc_data, (bc_markers, bc_values),
@@ -114,25 +115,15 @@ def apply_lifting_numba(
     pos, x_dofmap, x = mesh
 
     # Empty arrays mimicking Nullpointers
-    facet_index = np.zeros(0, dtype=np.int32)
-    facet_perm = np.zeros(0, dtype=np.uint8)
+    facet_index = numpy.zeros(0, dtype=numpy.int32)
+    facet_perm = numpy.zeros(0, dtype=numpy.uint8)
 
     # NOTE: All cells are assumed to be of the same type
-    geometry = np.zeros((pos[1]-pos[0], gdim))
-    Ae = np.zeros((num_dofs_per_element, num_dofs_per_element),
-                  dtype=PETSc.ScalarType)
-    Ag = np.zeros(num_dofs_per_element,
-                  dtype=PETSc.ScalarType)
-    # Set Dirchlet DOFS first
-    for dof in dofmap:
-        if markers[dof]:
-            if dof < num_local_dofs:
-                if in_numpy_array(masters, dof):
-                    b[dof] += values[dof]
-                else:
-                    b[dof] = values[dof]
-            else:
-                b[dof] = 0
+    geometry = numpy.zeros((pos[1]-pos[0], gdim))
+    Ae = numpy.zeros((num_dofs_per_element, num_dofs_per_element),
+                     dtype=PETSc.ScalarType)
+    Ag = numpy.zeros(num_dofs_per_element,
+                     dtype=PETSc.ScalarType)
 
     # Loop over all cells
     for is_slave, cell_index in zip(is_slave_cell, active_cells):
@@ -178,11 +169,11 @@ def apply_lifting_numba(
             for i, dof in enumerate(local_pos):
                 if markers[dof]:
                     Ag -= Ae[:, i] * values[dof]
-            slave_cell_index = np.flatnonzero(slave_cells == cell_index)[0]
+            slave_cell_index = numpy.flatnonzero(slave_cells == cell_index)[0]
             cell_slaves = cell_to_slave[c_to_s_off[slave_cell_index]:
                                         c_to_s_off[slave_cell_index+1]]
             for i, dof in enumerate(local_pos):
-                is_slave_dof = np.flatnonzero(slaves[cell_slaves] == dof)
+                is_slave_dof = numpy.flatnonzero(slaves[cell_slaves] == dof)
                 if len(is_slave_dof) > 0:
                     local_index = is_slave_dof[0]
                     local_masters = masters[offsets[local_index]:

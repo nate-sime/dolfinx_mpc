@@ -9,7 +9,6 @@ import numpy
 import dolfinx
 import dolfinx.common
 import dolfinx.log
-import warnings
 
 from .assemble_matrix import in_numpy_array, pack_facet_info
 from .numba_setup import PETSc, ffi
@@ -17,12 +16,11 @@ from .numba_setup import PETSc, ffi
 Timer = dolfinx.common.Timer
 
 
-def assemble_vector(form, constraint,
-                    bcs=[]):
+def assemble_vector(form, constraint):
     dolfinx.log.log(dolfinx.log.LogLevel.INFO, "Assemble MPC vector")
     timer_vector = Timer("~MPC: Assemble vector")
 
-    V = constraint.V_mpc
+    V = constraint.function_space()
     # Unpack mesh and dofmap data
     pos = V.mesh.geometry.dofmap.offsets
     x_dofs = V.mesh.geometry.dofmap.array
@@ -60,24 +58,6 @@ def assemble_vector(form, constraint,
 
     # Assemble vector with all entries
     dolfinx.cpp.fem.assemble_vector(vector.array_w, cpp_form)
-
-    # If master is DirichletBC, remove local contributions in L
-    # before adding slave contributions
-    bc_dofs = []
-    for bc in bcs:
-        bc_dofs.extend(bc.dof_indices[:, 0])
-    bc_dofs = numpy.array(bc_dofs, dtype=numpy.int32)
-
-    bc_is_master = numpy.flatnonzero(numpy.isin(masters.array, bc_dofs))
-    zero_dofs = masters.array[bc_is_master]
-    if len(zero_dofs) > 0:
-        warnings.warn("Master DOF is a Dirichlet condition. " +
-                      "Use dolfinx_mpc.apply lifting instead of " +
-                      "dolfinx.apply_lifting and dolfinx.fem.set_bc",
-                      category=RuntimeWarning, stacklevel=2)
-        with vector.localForm() as b:
-            for dof in zero_dofs:
-                b[dof] = 0
 
     # Assemble over cells
     subdomain_ids = formintegral.integral_ids(
@@ -130,6 +110,15 @@ def assemble_vector(form, constraint,
                                              facet_permutation_info), dofs,
                                          num_dofs_per_element,
                                          mpc_data)
+
+    # if len(zero_dofs) > 0:
+    #     warnings.warn("Master DOF is a Dirichlet condition. " +
+    #                   "Use dolfinx_mpc.apply lifting instead of " +
+    #                   "dolfinx.apply_lifting and dolfinx.fem.set_bc",
+    #                   category=RuntimeWarning, stacklevel=2)
+    #     with vector.localForm() as b:
+    #         for dof in zero_dofs:
+    #             b[dof] = 0
     timer_vector.stop()
     return vector
 

@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Jorgen S. Dokken
+// Copyright (C) 2020 Jorgen S. Dokken
 //
 // This file is part of DOLFINX_MPC
 //

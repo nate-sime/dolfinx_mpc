@@ -78,9 +78,7 @@ def assemble_matrix(form, constraint, bcs=[]):
     timer_matrix = Timer("~MPC: Assemble matrix")
 
     # Get data from function space
-    assert(form.arguments()[0].ufl_function_space() ==
-           form.arguments()[1].ufl_function_space())
-    V = form.arguments()[0].ufl_function_space()
+    V = constraint.function_space()
     dofmap = V.dofmap
     dofs = dofmap.list.array
 
@@ -95,27 +93,10 @@ def assemble_matrix(form, constraint, bcs=[]):
     num_local_slaves = constraint.num_local_slaves()
     masters_local = masters.array
     offsets = masters.offsets
-    mpc_data = (slaves_local, masters_local, coefficients, offsets,
-                slave_cells, cell_to_slave, c_to_s_off)
-
-    # If master is DirichletBC, remove local contributions in L
-    # before adding slave contributions
-    bc_dofs = []
-    for bc in bcs:
-        bc_dofs.extend(bc.dof_indices[:, 0])
-    bc_dofs = numpy.array(bc_dofs, dtype=numpy.int32)
-
-    bc_is_master = numpy.flatnonzero(numpy.isin(masters.array, bc_dofs))
-    zero_dofs = masters.array[bc_is_master]
-    if len(zero_dofs) > 0:
-        warnings.warn("Master DOF is a Dirichlet condition. " +
-                      "You have to supply Dirichlet conditions " +
-                      "to assemble_vector and use a special lifting operator",
-                      category=RuntimeWarning, stacklevel=2)
-
     # Gather BC data
-    bc_array = numpy.array([])
+    bc_array = numpy.array([], dtype=numpy.int32)
     local_slave_dofs_trimmed = slaves_local[:num_local_slaves]
+
     bc_mpc = [dolfinx.DirichletBC(
         dolfinx.Function(V), local_slave_dofs_trimmed)]
 
@@ -124,7 +105,17 @@ def assemble_matrix(form, constraint, bcs=[]):
         for bc in bcs:
             # Extract local index of possible sub space
             bc_array = numpy.append(bc_array, bc.dof_indices[:, 0])
+    master_is_bc = numpy.full(len(masters_local), False, dtype=bool)
+    bc_indices = numpy.flatnonzero(numpy.isin(masters_local, bc_array))
+    if len(bc_indices) > 0:
+        warnings.warn("Master DOF is a Dirichlet condition. " +
+                      "You have to supply Dirichlet conditions " +
+                      "to assemble_vector and use a special lifting operator",
+                      category=RuntimeWarning, stacklevel=2)
 
+    master_is_bc[bc_indices] = True
+    mpc_data = (slaves_local, masters_local, coefficients, offsets,
+                slave_cells, cell_to_slave, c_to_s_off, master_is_bc)
     # Get data from mesh
     pos = V.mesh.geometry.dofmap.offsets
     x_dofs = V.mesh.geometry.dofmap.array
@@ -135,6 +126,10 @@ def assemble_matrix(form, constraint, bcs=[]):
 
     # Generate matrix with MPC sparsity pattern
     cpp_form = dolfinx.Form(form)._cpp_object
+
+    assert(cpp_form.function_spaces[0] == cpp_form.function_spaces[1])
+    assert(constraint.function_space()._cpp_object ==
+           cpp_form.function_spaces[0])
 
     # Pack constants and coefficients
     form_coeffs = dolfinx.cpp.fem.pack_coefficients(cpp_form)
@@ -284,7 +279,7 @@ def assemble_cells(A, kernel, active_cells, mesh, gdim, coeffs, constants,
         A_local_copy = A_local.copy()
         # If this slave contains a slave dof, modify local contribution
         modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                              local_pos, mpc, num_dofs_per_element)  # , bcs)
+                              local_pos, mpc, num_dofs_per_element, bcs)
         # Remove already assembled contribution to matrix
         A_contribution = A_local - A_local_copy
         slave_cell_index += 1
@@ -364,7 +359,7 @@ def assemble_exterior_facets(A, kernel, mesh, gdim, coeffs, consts, perm,
         A_local_copy = A_local.copy()
         # If this slave contains a slave dof, modify local contribution
         modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                              local_pos, mpc, num_dofs_per_element)  # , bcs)
+                              local_pos, mpc, num_dofs_per_element, bcs)
 
         # Remove already assembled contribution to matrix
         A_contribution = A_local - A_local_copy
@@ -383,7 +378,7 @@ def assemble_exterior_facets(A, kernel, mesh, gdim, coeffs, consts, perm,
 
 @numba.njit
 def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
-                          local_pos, mpc, num_dofs_per_element):  # , bcs):
+                          local_pos, mpc, num_dofs_per_element, bcs):
     """
     Modifies A_local as it contains slave degrees of freedom.
     Adds contributions to corresponding master degrees of freedom in A.
@@ -392,7 +387,7 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
 
     # Unpack MPC data
     (slaves, masters_local, coefficients, offsets, slave_cells,
-     cell_to_slave, cell_to_slave_offsets) = mpc
+     cell_to_slave, cell_to_slave_offsets, masters_is_bc) = mpc
 
     # Rows taken over by master
     A_row = numpy.zeros((num_dofs_per_element, 1), dtype=PETSc.ScalarType)
@@ -414,15 +409,18 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                                 cell_to_slave_offsets[slave_cell_index+1]]
 
     for i, slave_index in enumerate(cell_slaves):
-        cell_masters = masters_local[offsets[slave_index]:
-                                     offsets[slave_index+1]]
-        cell_coeffs = coefficients[offsets[slave_index]:
-                                   offsets[slave_index+1]]
+        local_masters = masters_local[offsets[slave_index]:
+                                      offsets[slave_index+1]]
+        local_coeffs = coefficients[offsets[slave_index]:
+                                    offsets[slave_index+1]]
+        local_master_is_bc = masters_is_bc[offsets[slave_index]:
+                                           offsets[slave_index+1]]
         # # Variable for local position of slave dof
         local_idx = numpy.flatnonzero(
             slaves[slave_index] == local_pos)[0]
         # Loop through each master dof to take individual contributions
-        for master, coeff in zip(cell_masters, cell_coeffs):
+        for master, coeff, master_is_bc in zip(
+                local_masters, local_coeffs, local_master_is_bc):
             # Reset local contribution matrices
             A_row.fill(0.0)
             A_col.fill(0.0)
@@ -451,13 +449,16 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                 A_col[0, o_local_idx] = 0
 
                 # Masters for other cell
-                other_cell_masters = masters_local[offsets[other_slave]:
-                                                   offsets[other_slave+1]]
+                other_local_masters = masters_local[offsets[other_slave]:
+                                                    offsets[other_slave+1]]
                 other_coeffs = coefficients[offsets[other_slave]:
                                             offsets[other_slave+1]]
+                other_local_master_is_bc = masters_is_bc[
+                    offsets[other_slave]:offsets[other_slave+1]]
                 # Add cross terms for masters
-                for (other_master, other_coeff) in zip(other_cell_masters,
-                                                       other_coeffs):
+                for (other_master, other_coeff, other_master_is_bc) in zip(
+                        other_local_masters, other_coeffs,
+                        other_local_master_is_bc):
                     A_m0m1.fill(0)
                     A_m1m0.fill(0)
                     A_m0m1[0, 0] = coeff*other_coeff*A_local_copy[local_idx,
@@ -468,14 +469,23 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
                     m1_index[0] = other_master
                     # Insert only once per slave pair on each cell
                     if j > i:
+                        if master_is_bc:
+                            A_m0m1.fill(0)
                         ierr_m0m1 = set_values_local(A, 1, ffi_fb(m0_index),
                                                      1, ffi_fb(m1_index),
                                                      ffi_fb(A_m0m1), mode)
                         assert(ierr_m0m1 == 0)
+                        if other_master_is_bc:
+                            A_m1m0.fill(0)
                         ierr_m1m0 = set_values_local(A, 1, ffi_fb(m1_index),
                                                      1, ffi_fb(m0_index),
                                                      ffi_fb(A_m1m0), mode)
                         assert(ierr_m1m0 == 0)
+
+            if master_is_bc:
+                A_row[local_idx] = 0
+                A_col.fill(0)
+                A_master[0] = 0
 
             # Add slave column to master column
             mpc_pos = local_pos.copy()
@@ -503,20 +513,24 @@ def modify_mpc_cell_local(A, slave_cell_index, A_local, A_local_copy,
             assert(ierr_m0m0 == 0)
 
         # Add contributions for different masters on the same cell
-        for i_0, (m0, c0) in enumerate(zip(cell_masters, cell_coeffs)):
-            for i_1 in range(i_0+1, len(cell_masters)):
+        for i_0, (m0, c0, is_bc0) in enumerate(zip(
+                local_masters, local_coeffs, local_master_is_bc)):
+            for i_1 in range(i_0+1, len(local_masters)):
                 A_c0.fill(0.0)
-                c1 = cell_coeffs[i_1]
+                c1 = local_coeffs[i_1]
                 A_c0[0, 0] += c0*c1 * \
                     A_local_copy[local_idx, local_idx]
                 m0_index[0] = m0
-                m1_index[0] = cell_masters[i_1]
+                m1_index[0] = local_masters[i_1]
+                if is_bc0:
+                    A_c0.fill(0)
                 ierr_c0 = set_values_local(A,
                                            1, ffi_fb(m0_index),
                                            1, ffi_fb(m1_index),
                                            ffi_fb(A_c0), mode)
                 assert(ierr_c0 == 0)
-                A_c1.fill(0.0)
+                if local_master_is_bc[i_1]:
+                    A_c1.fill(0.0)
                 A_c1[0, 0] += c0*c1 * \
                     A_local_copy[local_idx, local_idx]
                 ierr_c1 = set_values_local(A,
