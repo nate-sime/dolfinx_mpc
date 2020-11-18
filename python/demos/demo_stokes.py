@@ -94,10 +94,8 @@ inlet_velocity = dolfinx.Function(V)
 inlet_velocity.interpolate(inlet_velocity_expression)
 W0 = W.sub(0)
 dofs = dolfinx.fem.locate_dofs_topological((W0, V), 1, inlet_facets)
-bc1 = dolfinx.DirichletBC(inlet_velocity, dofs, W0)
-
-# Collect Dirichlet boundary conditions
-bcs = [bc1]
+bc_u = dolfinx.DirichletBC(inlet_velocity, dofs, W0)
+bcs = [bc_u]
 
 # Slip conditions for walls
 n = dolfinx_mpc.utils.create_normal_approximation(V, mt.indices[mt.values == 1])
