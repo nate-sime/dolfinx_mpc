@@ -15,13 +15,15 @@
 #
 # SPDX-License-Identifier:    LGPL-3.0-or-later
 
-
 import dolfinx
 import dolfinx.io
 import dolfinx_mpc
 import dolfinx_mpc.utils
-import ufl
+import gmsh
+import matplotlib.pyplot as plt
 import numpy as np
+import scipy.sparse
+import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -31,39 +33,71 @@ if np.dtype(PETSc.ScalarType).kind == 'c':
 else:
     complex = False
 
-# Create mesh and finite element
-N = 50
-mesh = dolfinx.UnitSquareMesh(MPI.COMM_WORLD, N, N)
-V = dolfinx.FunctionSpace(mesh, ("CG", 1))
+# -------------------------- Create mesh --------------------------
+res_left = 0.075
+res_right = 0.05
+# If res_left< res_right we have DirichletBC on facets in the same cell as the slave dof
+# which is not supported
+assert(res_left > res_right)
+L = 1
+H = 1
+vol_marker = 1
+left_marker, right_marker, tb_marker = 3, 2, 1
+gmsh.initialize()
+if MPI.COMM_WORLD.rank == 0:
+    gmsh.model.add("Square duct")
+    rect = gmsh.model.occ.addRectangle(0, 0, 0, L, H)
+    gmsh.model.occ.synchronize()
+    gmsh.model.addPhysicalGroup(2, [rect], vol_marker)
+    gmsh.model.setPhysicalName(2, vol_marker, "Volume")
 
-# Create Dirichlet boundary condition
-u_bc = dolfinx.function.Function(V)
-with u_bc.vector.localForm() as u_local:
-    u_local.set(0.0)
+    surfaces = gmsh.model.occ.getEntities(dim=1)
+    tb = []
+    left = []
+    right = []
+    # Find and tag facets
+    for surface in surfaces:
+        com = gmsh.model.occ.getCenterOfMass(surface[0], surface[1])
+        if np.allclose(com, [0, H / 2, 0]):
+            left.append(surface[1])
+        elif np.allclose(com, [L, H / 2, 0]):
+            right.append(surface[1])
+        elif np.isclose(com[1], 0) or np.isclose(com[1], H):
+            tb.append(surface[1])
+
+    # Add physical markers
+    gmsh.model.addPhysicalGroup(1, tb, tb_marker)
+    gmsh.model.setPhysicalName(1, tb_marker, "Walls")
+    gmsh.model.addPhysicalGroup(1, left, left_marker)
+    gmsh.model.setPhysicalName(1, left_marker, "Fluid inlet")
+    gmsh.model.addPhysicalGroup(1, right, right_marker)
+    gmsh.model.setPhysicalName(1, right_marker, "Fluid outlet")
+    # Specify mesh resolution fields
+    gmsh.model.mesh.field.add("Distance", 1)
+    gmsh.model.mesh.field.setNumbers(1, "EdgesList", left)
+    gmsh.model.mesh.field.add("Threshold", 2)
+    gmsh.model.mesh.field.setNumber(2, "IField", 1)
+    gmsh.model.mesh.field.setNumber(2, "LcMin", res_left)
+    gmsh.model.mesh.field.setNumber(2, "LcMax", res_right)
+    gmsh.model.mesh.field.setNumber(2, "DistMin", L / 3)
+    gmsh.model.mesh.field.setNumber(2, "DistMax", L / 2)
+    gmsh.model.mesh.field.add("Min", 7)
+    gmsh.model.mesh.field.setNumbers(7, "FieldsList", [2])
+    gmsh.model.mesh.field.setAsBackgroundMesh(7)
+    # Generate mesh
+    gmsh.option.setNumber("Mesh.MaxNumThreads1D", MPI.COMM_WORLD.size)
+    gmsh.option.setNumber("Mesh.MaxNumThreads2D", MPI.COMM_WORLD.size)
+    gmsh.option.setNumber("Mesh.MaxNumThreads3D", MPI.COMM_WORLD.size)
+    gmsh.model.mesh.generate(2)
+
+mesh, ft = dolfinx_mpc.utils.gmsh_model_to_mesh(gmsh.model, facet_data=True, gdim=2)
+gmsh.finalize()
 
 
-def DirichletBoundary(x):
-    return np.logical_or(np.isclose(x[1], 0), np.isclose(x[1], 1))
-
-
-facets = dolfinx.mesh.locate_entities_boundary(mesh, 1,
-                                               DirichletBoundary)
-topological_dofs = dolfinx.fem.locate_dofs_topological(V, 1, facets)
-bc = dolfinx.fem.DirichletBC(u_bc, topological_dofs)
-bcs = [bc]
-
-
-def PeriodicBoundary(x):
-    return np.isclose(x[0], 1)
-
-
-facets = dolfinx.mesh.locate_entities_boundary(
-    mesh, mesh.topology.dim - 1, PeriodicBoundary)
-mt = dolfinx.MeshTags(mesh, mesh.topology.dim - 1,
-                      facets, np.full(len(facets), 2, dtype=np.int32))
-
+# ---------------- Define function space and BCs -------------------
 
 def periodic_relation(x):
+    """ Mapping the left boundary to the right boundary """
     out_x = np.zeros(x.shape)
     out_x[0] = 1 - x[0]
     out_x[1] = x[1]
@@ -71,9 +105,21 @@ def periodic_relation(x):
     return out_x
 
 
+V = dolfinx.FunctionSpace(mesh, ("CG", 1))
+
+# DiricletBC for top and bottom facets
+u_bc = dolfinx.function.Function(V)
+with u_bc.vector.localForm() as u_local:
+    u_local.set(0.0)
+tb_facets = ft.indices[ft.values == tb_marker]
+topological_dofs = dolfinx.fem.locate_dofs_topological(V, 1, tb_facets)
+bc = dolfinx.fem.DirichletBC(u_bc, topological_dofs)
+bcs = [bc]
+
+
 with dolfinx.common.Timer("~PERIODIC: Initialize MPC"):
     mpc = dolfinx_mpc.MultiPointConstraint(V)
-    mpc.create_periodic_constraint(mt, 2, periodic_relation, bcs)
+    mpc.create_periodic_constraint(ft, left_marker, periodic_relation, bcs)
     mpc.finalize()
 
 # Define variational problem
@@ -95,6 +141,8 @@ with dolfinx.common.Timer("~PERIODIC: Assemble LHS and RHS"):
     A = dolfinx_mpc.assemble_matrix(a, mpc, bcs=bcs)
     b = dolfinx_mpc.assemble_vector(rhs, mpc)
 
+ai, aj, av = A.getValuesCSR()
+A_mpc_scipy = scipy.sparse.csr_matrix((av, aj, ai))
 
 # Apply boundary conditions
 dolfinx.fem.apply_lifting(b, [a], [bcs])
@@ -143,11 +191,10 @@ outfile.write_mesh(mesh)
 outfile.write_function(u_h)
 
 
-print("----Verification----")
 # --------------------VERIFICATION-------------------------
 A_org = dolfinx.fem.assemble_matrix(a, bcs)
-
 A_org.assemble()
+
 L_org = dolfinx.fem.assemble_vector(rhs)
 dolfinx.fem.apply_lifting(L_org, [a], [bcs])
 L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
@@ -183,6 +230,23 @@ b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
 
 dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
 dolfinx_mpc.utils.compare_matrices(reduced_A, A_np, mpc)
-assert np.allclose(
-    uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+
+# Plot sparisty patterns
+ai, aj, av = A_org.getValuesCSR()
+A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
+axs[0].set_title("Periodic BC", pad=20, fontsize=25)
+axs[0].spy(A_mpc_scipy)
+axs[0].tick_params(axis='both', which='major', labelsize=22)
+axs[1].set_title("Neumann BC", pad=20, fontsize=25)
+axs[1].spy(A_scipy)
+axs[1].tick_params(axis='both', which='major', labelsize=22)
+if MPI.COMM_WORLD.size > 1:
+    plt.savefig("sp_periodic_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
+
+else:
+    plt.savefig("sp_periodic.png", dpi=200)
+
+
 dolfinx.common.list_timings(MPI.COMM_WORLD, [dolfinx.common.TimingType.wall])
