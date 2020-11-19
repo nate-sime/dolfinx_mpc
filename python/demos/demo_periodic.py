@@ -74,13 +74,13 @@ if MPI.COMM_WORLD.rank == 0:
     gmsh.model.setPhysicalName(1, right_marker, "Fluid outlet")
     # Specify mesh resolution fields
     gmsh.model.mesh.field.add("Distance", 1)
-    gmsh.model.mesh.field.setNumbers(1, "EdgesList", left)
+    gmsh.model.mesh.field.setNumbers(1, "EdgesList", right)
     gmsh.model.mesh.field.add("Threshold", 2)
     gmsh.model.mesh.field.setNumber(2, "IField", 1)
-    gmsh.model.mesh.field.setNumber(2, "LcMin", res_left)
-    gmsh.model.mesh.field.setNumber(2, "LcMax", res_right)
-    gmsh.model.mesh.field.setNumber(2, "DistMin", L / 3)
-    gmsh.model.mesh.field.setNumber(2, "DistMax", L / 2)
+    gmsh.model.mesh.field.setNumber(2, "LcMin", res_right)
+    gmsh.model.mesh.field.setNumber(2, "LcMax", res_left)
+    gmsh.model.mesh.field.setNumber(2, "DistMin", 0.1 * L)
+    gmsh.model.mesh.field.setNumber(2, "DistMax", 0.3 * L)
     gmsh.model.mesh.field.add("Min", 7)
     gmsh.model.mesh.field.setNumbers(7, "FieldsList", [2])
     gmsh.model.mesh.field.setAsBackgroundMesh(7)
@@ -195,6 +195,25 @@ outfile.write_function(u_h)
 A_org = dolfinx.fem.assemble_matrix(a, bcs)
 A_org.assemble()
 
+# Plot sparisty patterns (before making the matrix dense)
+ai, aj, av = A_org.getValuesCSR()
+A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
+axs[0].grid("on", zorder=-1)
+axs[1].grid("on", zorder=-1)
+axs[0].tick_params(axis='both', which='major', labelsize=22)
+axs[0].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann", zorder=3)
+axs[0].spy(A_mpc_scipy, color="b", markersize=1.7, markeredgewidth=0.0, label="Periodic", zorder=2)
+axs[0].legend(markerscale=8)
+axs[1].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann")
+axs[1].tick_params(axis='both', which='major', labelsize=22)
+axs[1].spy(A_mpc_scipy, color="b", markersize=1.7, markeredgewidth=0.0, label="Periodic")
+axs[1].legend(markerscale=8)
+if MPI.COMM_WORLD.size > 1:
+    plt.savefig("sp_periodic_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
+else:
+    plt.savefig("sp_periodic.png", dpi=600)
+
 L_org = dolfinx.fem.assemble_vector(rhs)
 dolfinx.fem.apply_lifting(L_org, [a], [bcs])
 L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
@@ -231,22 +250,5 @@ b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
 dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
 dolfinx_mpc.utils.compare_matrices(reduced_A, A_np, mpc)
 assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
-
-# Plot sparisty patterns
-ai, aj, av = A_org.getValuesCSR()
-A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
-fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
-axs[0].set_title("Periodic BC", pad=20, fontsize=25)
-axs[0].spy(A_mpc_scipy)
-axs[0].tick_params(axis='both', which='major', labelsize=22)
-axs[1].set_title("Neumann BC", pad=20, fontsize=25)
-axs[1].spy(A_scipy)
-axs[1].tick_params(axis='both', which='major', labelsize=22)
-if MPI.COMM_WORLD.size > 1:
-    plt.savefig("sp_periodic_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
-
-else:
-    plt.savefig("sp_periodic.png", dpi=200)
-
 
 dolfinx.common.list_timings(MPI.COMM_WORLD, [dolfinx.common.TimingType.wall])

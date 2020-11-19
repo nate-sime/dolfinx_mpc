@@ -18,6 +18,8 @@
 
 
 import dolfinx
+import scipy.sparse
+import matplotlib.pyplot as plt
 import dolfinx.io
 import dolfinx_mpc
 import dolfinx_mpc.utils
@@ -42,7 +44,7 @@ def demo_periodic3D(celltype, out_periodic):
         V = dolfinx.FunctionSpace(mesh, ("CG", 2))
     else:
         # Hex setup
-        N = 12
+        N = 10
         mesh = dolfinx.UnitCubeMesh(MPI.COMM_WORLD, N, N, N,
                                     dolfinx.cpp.mesh.CellType.hexahedron)
         V = dolfinx.FunctionSpace(mesh, ("CG", 1))
@@ -102,6 +104,8 @@ def demo_periodic3D(celltype, out_periodic):
         A = dolfinx_mpc.assemble_matrix(a, mpc, bcs=bcs)
         b = dolfinx_mpc.assemble_vector(rhs, mpc)
 
+    ai, aj, av = A.getValuesCSR()
+    A_mpc_scipy = scipy.sparse.csr_matrix((av, aj, ai))
     # Apply boundary conditions
     dolfinx.fem.apply_lifting(b, [a], [bcs])
     b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
@@ -157,8 +161,27 @@ def demo_periodic3D(celltype, out_periodic):
     print("----Verification----")
     # --------------------VERIFICATION-------------------------
     A_org = dolfinx.fem.assemble_matrix(a, bcs)
-
     A_org.assemble()
+
+    # Plot sparisty patterns (before creating dense matrix)
+    ai, aj, av = A_org.getValuesCSR()
+    A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+    fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
+    axs[0].tick_params(axis='both', which='major', labelsize=22)
+    axs[0].spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="Neumann", zorder=2)
+    axs[0].spy(A_mpc_scipy, color="b", markersize=1, markeredgewidth=0.0, label="Periodic", zorder=1)
+    axs[0].grid("on")
+    axs[0].legend(markerscale=10)
+    axs[1].spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="Neumann")
+    axs[1].tick_params(axis='both', which='major', labelsize=22)
+    axs[1].grid("on")
+    axs[1].spy(A_mpc_scipy, color="b", markersize=1, markeredgewidth=0.0, label="Periodic")
+    axs[1].legend(markerscale=10)
+    if MPI.COMM_WORLD.size > 1:
+        plt.savefig("sp_per_3D_rank{0:d}_{1:s}.png".format(MPI.COMM_WORLD.rank, ext), dpi=200)
+    else:
+        plt.savefig("sp_per_3D_{0:s}.png".format(ext), dpi=600)
+
     L_org = dolfinx.fem.assemble_vector(rhs)
     dolfinx.fem.apply_lifting(L_org, [a], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES,
@@ -197,8 +220,7 @@ def demo_periodic3D(celltype, out_periodic):
     b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
     dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
     dolfinx_mpc.utils.compare_matrices(reduced_A, A_np, mpc)
-    assert np.allclose(
-        uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+    assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
 
 
 if __name__ == "__main__":
