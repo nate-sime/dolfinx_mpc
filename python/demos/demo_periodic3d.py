@@ -18,15 +18,16 @@
 
 
 import dolfinx
-import scipy.sparse
-import matplotlib.pyplot as plt
 import dolfinx.io
 import dolfinx_mpc
 import dolfinx_mpc.utils
-import ufl
+import matplotlib.patches
+import matplotlib.pyplot as plt
 import numpy as np
-from petsc4py import PETSc
+import scipy.sparse
+import ufl
 from mpi4py import MPI
+from petsc4py import PETSc
 
 # Get PETSc int and scalar types
 if np.dtype(PETSc.ScalarType).kind == 'c':
@@ -167,20 +168,25 @@ def demo_periodic3D(celltype, out_periodic):
     ai, aj, av = A_org.getValuesCSR()
     A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
     fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
+    axs[0].grid("on", zorder=-1)
+    axs[1].grid("on", zorder=-1)
     axs[0].tick_params(axis='both', which='major', labelsize=22)
-    axs[0].spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="Neumann", zorder=2)
-    axs[0].spy(A_mpc_scipy, color="b", markersize=1, markeredgewidth=0.0, label="Periodic", zorder=1)
-    axs[0].grid("on")
-    axs[0].legend(markerscale=10)
-    axs[1].spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="Neumann")
+    axs[0].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann", zorder=3)
+    axs[0].spy(A_mpc_scipy, color="b", marker="x", markersize=1.7, markeredgewidth=0.8, label="Periodic", zorder=2)
+    axs[0].add_patch(matplotlib.patches.Rectangle((800, 800), 150, 150,
+                                                  linewidth=1, edgecolor='k', facecolor='none', zorder=4))
+    axs[0].legend(markerscale=8, fontsize=20)
+    axs[1].spy(A_scipy, color="r", markersize=3, markeredgewidth=0.0, label="Neumann", zorder=3)
     axs[1].tick_params(axis='both', which='major', labelsize=22)
-    axs[1].grid("on")
-    axs[1].spy(A_mpc_scipy, color="b", markersize=1, markeredgewidth=0.0, label="Periodic")
-    axs[1].legend(markerscale=10)
+    axs[1].spy(A_mpc_scipy, color="b", marker="x", markersize=3, markeredgewidth=0.8, label="Periodic", zorder=4)
+    axs[1].legend(markerscale=2, fontsize=20)
+    axs[1].set_xlim([1000, 850])
+    axs[1].set_ylim([850, 1000])
+
     if MPI.COMM_WORLD.size > 1:
         plt.savefig("sp_per_3D_rank{0:d}_{1:s}.png".format(MPI.COMM_WORLD.rank, ext), dpi=200)
     else:
-        plt.savefig("sp_per_3D_{0:s}.png".format(ext), dpi=600)
+        plt.savefig("sp_per_3D_{0:s}.png".format(ext), dpi=300)
 
     L_org = dolfinx.fem.assemble_vector(rhs)
     dolfinx.fem.apply_lifting(L_org, [a], [bcs])

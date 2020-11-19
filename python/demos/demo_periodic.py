@@ -204,7 +204,7 @@ axs[0].grid("on", zorder=-1)
 axs[1].grid("on", zorder=-1)
 axs[0].tick_params(axis='both', which='major', labelsize=22)
 axs[0].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann", zorder=3)
-axs[0].spy(A_mpc_scipy, color="b", markersize=1.7, markeredgewidth=0.0, label="Periodic", zorder=2)
+axs[0].spy(A_mpc_scipy, color="b", marker="x", markersize=1.7, markeredgewidth=1, label="Periodic", zorder=2)
 axs[0].add_patch(matplotlib.patches.Rectangle((200, 200), 100, 100,
                                               linewidth=1, edgecolor='k', facecolor='none', zorder=2))
 axs[0].legend(markerscale=8, fontsize=20)
