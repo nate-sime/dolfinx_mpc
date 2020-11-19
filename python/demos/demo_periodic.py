@@ -15,6 +15,7 @@
 #
 # SPDX-License-Identifier:    LGPL-3.0-or-later
 
+import matplotlib.patches
 import dolfinx
 import dolfinx.io
 import dolfinx_mpc
@@ -204,15 +205,20 @@ axs[1].grid("on", zorder=-1)
 axs[0].tick_params(axis='both', which='major', labelsize=22)
 axs[0].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann", zorder=3)
 axs[0].spy(A_mpc_scipy, color="b", markersize=1.7, markeredgewidth=0.0, label="Periodic", zorder=2)
+axs[0].add_patch(matplotlib.patches.Rectangle((200, 200), 100, 100,
+                                              linewidth=1, edgecolor='k', facecolor='none', zorder=2))
 axs[0].legend(markerscale=8)
-axs[1].spy(A_scipy, color="r", markersize=1.7, markeredgewidth=0.0, label="Neumann")
+axs[1].spy(A_scipy, color="r", markersize=5, markeredgewidth=0.0, label="Neumann", zorder=4)
 axs[1].tick_params(axis='both', which='major', labelsize=22)
-axs[1].spy(A_mpc_scipy, color="b", markersize=1.7, markeredgewidth=0.0, label="Periodic")
-axs[1].legend(markerscale=8)
+axs[1].spy(A_mpc_scipy, color="b", marker="x", markersize=5, markeredgewidth=1, label="Periodic", zorder=4)
+axs[1].legend(markerscale=2)
+axs[1].set_xlim([200, 300])
+axs[1].set_ylim([300, 200])
+
 if MPI.COMM_WORLD.size > 1:
     plt.savefig("sp_periodic_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
 else:
-    plt.savefig("sp_periodic.png", dpi=600)
+    plt.savefig("sp_periodic.png", dpi=300)
 
 L_org = dolfinx.fem.assemble_vector(rhs)
 dolfinx.fem.apply_lifting(L_org, [a], [bcs])
