@@ -13,12 +13,15 @@ import dolfinx.fem as fem
 import dolfinx.io
 import dolfinx_mpc
 import dolfinx_mpc.utils
+import matplotlib.pyplot as plt
+import matplotlib.patches
 import numpy as np
+import scipy
 import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
 
-from create_and_export_mesh import mesh_3D_dolfin, gmsh_3D_stacked
+from create_and_export_mesh import gmsh_3D_stacked, mesh_3D_dolfin
 
 comm = MPI.COMM_WORLD
 
@@ -195,6 +198,28 @@ def demo_stacked_cubes(outfile, theta, gmsh=False,
                            "Xdmf/Domain/"
                            + "Grid[@Name='{0:s}'][1]"
                            .format(mesh.name))
+
+    A_org = fem.assemble_matrix(a, bcs)
+    A_org.assemble()
+
+    if V.dim > 5000:
+        # Plot sparisty patterns (before creating dense matrix)
+        ai, aj, av = A.getValuesCSR()
+        A_mpc_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        ai, aj, av = A_org.getValuesCSR()
+        A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        # Plot sparisty patterns (before making the matrix dense)
+        A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        fig, ax = plt.subplots(figsize=(8, 8), constrained_layout=True)
+        plt.grid("on", zorder=-1)
+        ax.tick_params(axis='both', which='major', labelsize=18)
+        plt.spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="No contact", zorder=3)
+        plt.spy(A_mpc_scipy, color="b", marker="x", markersize=1, markeredgewidth=1, label="Contact", zorder=2)
+        plt.legend(markerscale=8, fontsize=20)
+        if MPI.COMM_WORLD.size > 1:
+            plt.savefig("sp_contact_fine_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
+        else:
+            plt.savefig("sp_contact_fine.png", dpi=300)
     # Solve the MPC problem using a global transformation matrix
     # and numpy solvers to get reference values
     if not compare:
@@ -203,8 +228,34 @@ def demo_stacked_cubes(outfile, theta, gmsh=False,
     dolfinx_mpc.utils.log_info(
         "Solving reference problem with global matrix (using numpy)")
     with dolfinx.common.Timer("~~Contact: Reference problem"):
-        A_org = fem.assemble_matrix(a, bcs)
-        A_org.assemble()
+        # Plot sparisty patterns (before creating dense matrix)
+        ai, aj, av = A.getValuesCSR()
+        A_mpc_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        ai, aj, av = A_org.getValuesCSR()
+        A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        # Plot sparisty patterns (before making the matrix dense)
+        A_scipy = scipy.sparse.csr_matrix((av, aj, ai))
+        fig, axs = plt.subplots(1, 2, figsize=(18, 8), constrained_layout=True)
+        axs[0].grid("on", zorder=-1)
+        axs[1].grid("on", zorder=-1)
+        axs[0].tick_params(axis='both', which='major', labelsize=22)
+        axs[0].spy(A_scipy, color="r", markersize=1, markeredgewidth=0.0, label="No contact", zorder=3)
+        axs[0].spy(A_mpc_scipy, color="b", marker="x", markersize=1,
+                   markeredgewidth=1, label="Contact", zorder=2)
+        axs[0].add_patch(matplotlib.patches.Rectangle((1950, 1950), 100, 100,
+                                                      linewidth=1, edgecolor='k', facecolor='none', zorder=5))
+        axs[0].legend(markerscale=8, fontsize=20)
+        axs[1].spy(A_scipy, color="r", markersize=5, markeredgewidth=0.0, label="No contact", zorder=4)
+        axs[1].tick_params(axis='both', which='major', labelsize=22)
+        axs[1].spy(A_mpc_scipy, color="b", marker="x", markersize=5,
+                   markeredgewidth=1, label="Contact", zorder=4)
+        axs[1].legend(markerscale=2, fontsize=20)
+        axs[1].set_xlim([1950, 2050])
+        axs[1].set_ylim([2050, 1950])
+        if MPI.COMM_WORLD.size > 1:
+            plt.savefig("sp_contact_rank{0:d}.png".format(MPI.COMM_WORLD.rank), dpi=200)
+        else:
+            plt.savefig("sp_contact.png", dpi=300)
         L_org = fem.assemble_vector(rhs)
         fem.apply_lifting(L_org, [a], [bcs])
         L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
@@ -260,14 +311,13 @@ if __name__ == "__main__":
     outfile = dolfinx.io.XDMFFile(comm, "results/demo_contact_3D.xdmf", "w")
 
     if hex:
-        ct = dolfinx.cpp.mesh.CellType.tetrahedron
-    else:
         ct = dolfinx.cpp.mesh.CellType.hexahedron
+    else:
+        ct = dolfinx.cpp.mesh.CellType.tetrahedron
     demo_stacked_cubes(outfile, theta=theta, gmsh=gmsh, ct=ct, compare=compare, res=res, noslip=noslip)
 
     outfile.close()
 
     dolfinx_mpc.utils.log_info("Simulation finished")
     if timing:
-        dolfinx.common.list_timings(
-            comm, [dolfinx.common.TimingType.wall])
+        dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
