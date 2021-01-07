@@ -92,6 +92,8 @@ def ref_elasticity(tetra=True, out_xdmf=None, r_lvl=0, out_hdf5=None,
     rhs = ufl.inner(g, v) * ufl.ds(domain=mesh,
                                    subdomain_data=mt, subdomain_id=1)\
         + ufl.inner(f, v) * ufl.dx
+
+    num_dofs = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
     if MPI.COMM_WORLD.rank == 0:
         print("Problem size {0:d} ".format(num_dofs))
 
@@ -148,7 +150,6 @@ def ref_elasticity(tetra=True, out_xdmf=None, r_lvl=0, out_hdf5=None,
         solver.view()
 
     it = solver.getIterationNumber()
-    num_dofs = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
     if out_hdf5 is not None:
         d_set = out_hdf5.get("its")
         d_set[r_lvl] = it
