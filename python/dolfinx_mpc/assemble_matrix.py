@@ -155,6 +155,9 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
 
+    # FIXME: Should be input for geometries > 3.
+    # cmap = dolfinx.fem.create_coordinate_map(V.mesh.mpi_comm(), V.mesh.ufl_domain())
+
     if num_cell_integrals > 0:
         timer = Timer("~MPC: Assemble matrix (cells)")
         V.mesh.topology.create_entity_permutations()
@@ -251,7 +254,8 @@ def assemble_cells(A, kernel, active_cells, mesh, gdim, coeffs, constants,
         for j in range(num_vertices):
             for k in range(gdim):
                 geometry[j, k] = x[c[j], k]
-
+        # FIXME: To work for third order geometries, this has to be added
+        # cmap.apply_dof_transformation(geometry, permutation_info[cell], tdim)
         A_local.fill(0.0)
         # FIXME: Numba does not support edge reflections
         kernel(ffi_fb(A_local), ffi_fb(coeffs[cell_index, :]), ffi_fb(constants), ffi_fb(geometry),
