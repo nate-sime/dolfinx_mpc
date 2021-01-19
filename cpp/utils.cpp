@@ -147,7 +147,8 @@ dolfinx_mpc::get_basis_functions(
   element->evaluate_reference_basis(basis_reference_values, X);
 
   element->apply_dof_transformation(basis_reference_values.data(),
-                                    permutation_info[index], reference_value_size);
+                                    permutation_info[index],
+                                    reference_value_size);
 
   // Push basis forward to physical element
   element->transform_reference_basis(basis_values, basis_reference_values, X, J,
