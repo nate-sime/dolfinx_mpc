@@ -66,7 +66,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
 
   // Make maps for local data of slave and master coeffs
   std::vector<std::int32_t> local_slaves;
-  std::vector<std::int32_t> local_slaves_as_glob;
+  std::vector<std::int64_t> local_slaves_as_glob;
   std::map<std::int64_t, std::vector<std::int64_t>> masters;
   std::map<std::int64_t, std::vector<PetscScalar>> coeffs;
   std::map<std::int64_t, std::vector<std::int32_t>> owners;
@@ -77,12 +77,21 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   // Determine which dof should be a slave dof (based on max component of
   // normal vector normal vector)
   const std::vector<PetscScalar>& normal_array = nh->x()->array();
+  std::vector<std::int32_t> dofs(block_size);
+  Eigen::Array<PetscScalar, 1, Eigen::Dynamic> l_normal(1, tdim);
+  // Preallocate space for arrays in next loop
+  std::vector<std::int32_t> masters_i;
+  std::vector<PetscScalar> coeffs_i;
+  std::vector<std::int32_t> owners_i;
+  std::vector<std::int32_t> slave_loc(1);
+  std::vector<std::int64_t> slave_glob(1);
+  std::vector<std::int32_t> m_loc(1);
+  std::vector<std::int64_t> m_block(1);
   for (std::int32_t i = 0; i < slave_blocks[0].size(); ++i)
   {
-    std::vector<std::int32_t> dofs(block_size);
+
     std::iota(dofs.begin(), dofs.end(), slave_blocks[0][i] * block_size);
     // Create normalized local normal vector and fin its max index
-    Eigen::Array<PetscScalar, 1, Eigen::Dynamic> l_normal(1, tdim);
     for (std::int32_t j = 0; j < tdim; ++j)
       l_normal[j] = normal_array[dofs[j]];
     l_normal /= std::sqrt(l_normal.abs2().sum());
@@ -93,12 +102,11 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
     // Compute coeffs if slave is owned by the processor
     if (dofs[max_index] < size_local * block_size)
     {
-      std::vector<std::int32_t> masters_i;
-      std::vector<PetscScalar> coeffs_i;
-      std::vector<std::int32_t> owners_i;
+      masters_i.clear();
+      coeffs_i.clear();
+      owners_i.clear();
       std::div_t div = std::div(dofs[max_index], block_size);
-      std::vector<std::int32_t> slave_loc = {div.quot};
-      std::vector<std::int64_t> slave_glob(1);
+      slave_loc[0] = div.quot;
       imap->local_to_global(slave_loc.data(), 1, slave_glob.data());
       slave_glob[0] = slave_glob[0] * block_size + div.rem;
       local_slaves.push_back(dofs[max_index]);
@@ -122,8 +130,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
         for (std::int32_t j = 0; j < num_masters; ++j)
         {
           std::div_t div = std::div(masters_i[j], block_size);
-          std::vector<std::int32_t> m_loc = {div.quot};
-          std::vector<std::int64_t> m_block(1);
+          m_loc[0] = div.quot;
           imap->local_to_global(m_loc.data(), 1, m_block.data());
           m_glob[j] = m_block[0] * block_size + div.rem;
         }
@@ -188,7 +195,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   // with a local master facet
 
   std::map<std::int32_t, std::vector<std::int32_t>> local_owners;
-  std::map<std::int32_t, std::vector<std::int64_t>> local_masters;
+  std::map<std::int64_t, std::vector<std::int64_t>> local_masters;
   std::map<std::int32_t, std::vector<PetscScalar>> local_coeffs;
 
   Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor> coordinates
@@ -204,25 +211,23 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   std::vector<int> master_cells_vec(master_cells.begin(), master_cells.end());
   dolfinx::geometry::BoundingBoxTree bb_tree(*V->mesh(), tdim, master_cells_vec,
                                              1e-12);
-
+  Eigen::Array<PetscScalar, 1, 3> coefficients;
+  std::vector<std::int32_t> loc_block(1);
   for (std::int32_t i = 0; i < local_slaves.size(); ++i)
   {
     // Get coordinate and coeff for slave and save in send array
     auto coord = coordinates.row(slave_blocks[0][i]);
     local_slave_coordinates.row(i) = coord;
-    Eigen::Array<PetscScalar, 1, 3> coeffs;
-    std::vector<std::int32_t> dofs(block_size);
     std::iota(dofs.begin(), dofs.end(), slave_blocks[0][i] * block_size);
     for (std::int32_t j = 0; j < gdim; ++j)
-      coeffs[j] = normal_array[dofs[j]];
+      coefficients[j] = normal_array[dofs[j]];
     // Pad 2D spaces with zero in normal
     for (std::int32_t j = gdim; j < 3; ++j)
-      coeffs[j] = 0;
-    coeffs /= std::sqrt(coeffs.abs2().sum());
+      coefficients[j] = 0;
+    coefficients /= std::sqrt(coefficients.abs2().sum());
     Eigen::Index max_index;
-    const double _c = coeffs.abs().maxCoeff(&max_index);
-
-    local_slave_normal.row(i) = coeffs;
+    const double _c = coefficients.abs().maxCoeff(&max_index);
+    local_slave_normal.row(i) = coefficients;
 
     // Use collision detection algorithm (GJK) to check distance from  cell
     // to point and select one within 1e-10
@@ -248,7 +253,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
           for (std::int32_t block = 0; block < block_size; ++block)
           {
             PetscScalar coeff = basis_values(k * block_size + block, j)
-                                * coeffs[j] / coeffs[max_index];
+                                * coefficients[j] / coefficients[max_index];
             if (std::abs(coeff) > 1e-6)
             {
               l_master.push_back(cell_blocks[k] * block_size + block);
@@ -268,8 +273,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
         for (std::int32_t k = 0; k < num_masters; ++k)
         {
           std::div_t div = std::div(l_master[k], block_size);
-          std::vector<std::int32_t> loc_block = {div.quot};
-          std::vector<std::int64_t> m_block(1);
+          loc_block[0] = div.quot;
           imap->local_to_global(loc_block.data(), 1, m_block.data());
           global_masters[k] = m_block[0] * block_size + div.rem;
         }
@@ -316,7 +320,7 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
     // Flatten the maps to 1D arrays (assuming all slaves are local slaves)
     for (std::int32_t i = 0; i < local_slaves_as_glob.size(); i++)
     {
-      auto slave = local_slaves_as_glob[i];
+      std::int64_t slave = local_slaves_as_glob[i];
       masters_out.insert(masters_out.end(), masters[slave].begin(),
                          masters[slave].end());
       masters_out.insert(masters_out.end(), local_masters[slave].begin(),
@@ -421,7 +425,10 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
       collision_coeffs(indegree);
   std::vector<std::map<std::int64_t, std::vector<std::int32_t>>>
       collision_owners(indegree);
-
+  std::vector<std::int32_t> l_block;
+  std::vector<std::int32_t> l_rem;
+  std::vector<PetscScalar> l_coeff;
+  std::vector<std::int32_t> l_owner;
   // Loop over slaves per incoming processor
   for (std::int32_t i = 0; i < indegree; ++i)
   {
@@ -449,10 +456,10 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
         Eigen::Array<PetscScalar, Eigen::Dynamic, Eigen::Dynamic> basis_values
             = get_basis_functions(V, slave_coord, verified_candidates[0]);
         auto cell_blocks = V->dofmap()->cell_dofs(verified_candidates[0]);
-        std::vector<std::int32_t> l_block;
-        std::vector<std::int32_t> l_rem;
-        std::vector<PetscScalar> l_coeff;
-        std::vector<std::int32_t> l_owner;
+        l_block.clear();
+        l_rem.clear();
+        l_coeff.clear();
+        l_owner.clear();
         for (std::int32_t d = 0; d < tdim; ++d)
         {
           for (std::int32_t k = 0; k < cell_blocks.size(); ++k)
@@ -827,12 +834,13 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
       disp_recv_ghost_masters.data(), dolfinx::MPI::mpi_type<std::int32_t>(),
       slave_to_ghost);
   // Accumulate offsets of masters from different processors
+  std::vector<std::int32_t> inc_offset;
   std::vector<std::int32_t> ghost_offsets_ = {0};
   for (std::int32_t i = 0; i < src_ranks_ghost.size(); ++i)
   {
     const std::int32_t min = disp_recv_ghost_slaves[i];
     const std::int32_t max = disp_recv_ghost_slaves[i + 1];
-    std::vector<std::int32_t> inc_offset;
+    inc_offset.clear();
     inc_offset.insert(inc_offset.end(), in_ghost_offsets.begin() + min,
                       in_ghost_offsets.begin() + max);
     for (std::int32_t& offset : inc_offset)

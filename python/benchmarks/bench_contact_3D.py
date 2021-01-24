@@ -338,6 +338,7 @@ def demo_stacked_cubes(theta, ct, res, noslip, timings=False):
             max_time = comm.allreduce(wall_time, op=MPI.MAX)
             if comm.rank == 0:
                 print(op, num_calls, avg_time, min_time, max_time, file=results_file)
+    dolfinx.common.list_timings(MPI.COMM_WORLD, [dolfinx.common.TimingType.wall])
 
 
 if __name__ == "__main__":
