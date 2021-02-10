@@ -1,5 +1,6 @@
 import numpy as np
 import dolfinx.fem
+import dolfinx.cpp
 import dolfinx.geometry
 import dolfinx_mpc.cpp
 
@@ -23,8 +24,13 @@ def create_periodic_condition(V, mt, tag, relation, bcs, scale=1):
     num_local_blocks = len(slave_blocks[slave_blocks < size_local])
 
     # Compute coordinates where each slave has to evaluate its masters
-    # FIXME: could be reduced to the set of boundary entities
-    tree = dolfinx.geometry.BoundingBoxTree(V.mesh, tdim, padding=1e-15)
+    def boundary(x):
+        return np.full(x.shape[1], True)
+    bndry_facets = dolfinx.cpp.mesh.locate_entities_boundary(V.mesh, tdim - 1, boundary)
+    tree = dolfinx.geometry.BoundingBoxTree(V.mesh, tdim - 1, bndry_facets, padding=1e-15)
+    V.mesh.topology.create_connectivity(tdim - 1, tdim)
+    f_to_c = V.mesh.topology.connectivity(tdim - 1, tdim)
+
     global_tree = tree.create_global_tree(comm)
     cell_map = V.mesh.topology.index_map(tdim)
     [cmin, cmax] = cell_map.local_range
@@ -46,7 +52,8 @@ def create_periodic_condition(V, mt, tag, relation, bcs, scale=1):
             search_globally = True
             masters_, coeffs_, owners_ = [], [], []
             if comm.rank in procs:
-                possible_cells = dolfinx.geometry.compute_collisions_point(tree, master_coordinate)
+                possible_facets = dolfinx.geometry.compute_collisions_point(tree, master_coordinate)
+                possible_cells = np.array([f_to_c.links(facet)[0] for facet in possible_facets], dtype=np.int32)
                 if len(possible_cells) > 0:
                     glob_cells = cell_map.local_to_global(possible_cells)
                     is_owned = np.logical_and(cmin <= glob_cells, glob_cells < cmax)
@@ -100,7 +107,8 @@ def create_periodic_condition(V, mt, tag, relation, bcs, scale=1):
                     block_idx = slave_dof % bs
                     coordinate = in_data[slave_dof]
                     m_, c_, o_ = [], [], []
-                    possible_cells = dolfinx.geometry.compute_collisions_point(tree, coordinate)
+                    possible_facets = dolfinx.geometry.compute_collisions_point(tree, master_coordinate)
+                    possible_cells = np.array([f_to_c.links(facet)[0] for facet in possible_facets], dtype=np.int32)
                     if len(possible_cells) > 0:
                         glob_cells = cell_map.local_to_global(possible_cells)
                         is_owned = np.logical_and(cmin <= glob_cells, glob_cells < cmax)

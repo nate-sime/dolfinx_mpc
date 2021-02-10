@@ -434,7 +434,7 @@ def create_point_to_point_constraint(V, slave_point, master_point, vector=None):
             # All entries should not be zero
             assert(not np.isin(slave_index, zero_indices))
             # Check vector for zero contributions
-            local_slaves = np.array([slave_block[0] * block_size + slave_index], dtype=np.int32)
+            local_slaves = [slave_block[0] * block_size + slave_index]
             for i in range(block_size):
                 if i != slave_index and not np.isin(i, zero_indices):
                     local_masters.append(slave_block_g * block_size + i)
@@ -482,9 +482,9 @@ def create_point_to_point_constraint(V, slave_point, master_point, vector=None):
                     else:
                         local_coeffs.append(vector[i] / vector[slave_index])
             if vector is None:
-                local_offsets = np.arange(0, len(local_slaves) + 1, dtype=np.int32)
+                local_offsets = [np.arange(0, len(local_slaves) + 1, dtype=np.int32)
             else:
-                local_offsets = np.array([0, len(local_masters)], dtype=np.int32)
+                local_offsets = [0, len(local_masters)]
             if slave_block[0] in shared_indices.keys():
                 ghost_processors = list(shared_indices[slave_block[0]])
 
