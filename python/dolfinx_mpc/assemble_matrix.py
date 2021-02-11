@@ -87,11 +87,12 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     NOTE: Dirichlet conditions cant be on master dofs.
     """
 
-    timer_matrix = Timer("~MPC: Assemble matrix")
-
     # Get data from function space
     assert(form.arguments()[0].ufl_function_space() == form.arguments()[1].ufl_function_space())
     V = form.arguments()[0].ufl_function_space()
+    num_dofs = V.dofmap.index_map.size_global * V.dofmap.index_map_bs
+    timer_matrix = Timer(f"~MPC: {num_dofs} Assemble matrix")
+
     dofmap = V.dofmap
     dofs = dofmap.list.array
 
@@ -134,14 +135,14 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     # Create sparsity pattern
     if A is None:
         pattern = constraint.create_sparsity_pattern(cpp_form)
-        with Timer("~MPC: Assemble sparsity pattern"):
+        with Timer(f"~MPC: {num_dofs} Assemble sparsity pattern"):
             pattern.assemble()
-        with Timer("~MPC: Assemble matrix (Create matrix)"):
+        with Timer(f"~MPC: {num_dofs} Assemble matrix (Create matrix)"):
             A = dolfinx.cpp.la.create_matrix(V.mesh.mpi_comm(), pattern)
     A.zeroEntries()
-
+    return A
     # Assemble the matrix with all entries
-    with Timer("~MPC: Assemble unconstrained matrix"):
+    with Timer(f"~MPC: {num_dofs} Assemble unconstrained matrix"):
         dolfinx.cpp.fem.assemble_matrix_petsc(A, cpp_form, bcs)
 
     # General assembly data
@@ -156,7 +157,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     num_cell_integrals = len(subdomain_ids)
 
     if num_cell_integrals > 0:
-        timer = Timer("~MPC: Assemble matrix (cells)")
+        timer = Timer(f"~MPC: {num_dofs} Assemble matrix (cells)")
         V.mesh.topology.create_entity_permutations()
         permutation_info = V.mesh.topology.get_cell_permutation_info()
         for subdomain_id in subdomain_ids:
@@ -173,7 +174,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
 
     # Get cell orientation data
     if num_exterior_integrals > 0:
-        timer = Timer("~MPC: Assemble matrix (ext. facet kernel)")
+        timer = Timer(f"~MPC: {num_dofs} Assemble matrix (ext facets)")
         V.mesh.topology.create_entities(tdim - 1)
         V.mesh.topology.create_connectivity(tdim - 1, tdim)
         permutation_info = V.mesh.topology.get_cell_permutation_info()
@@ -189,7 +190,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
                                      num_facets_per_cell)
         timer.stop()
 
-    with Timer("~MPC: Assemble matrix (diagonal handling)"):
+    with Timer(f"~MPC: {num_dofs} Assemble matrix (diagonal handling)"):
         # Add one on diagonal for diriclet bc and slave dofs
         # NOTE: In the future one could use a constant in the DirichletBC
         if cpp_form.function_spaces[0].id == cpp_form.function_spaces[1].id:
@@ -199,7 +200,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     # Add mpc entries on diagonal
     add_diagonal(A.handle, slaves_local[:num_local_slaves])
 
-    with Timer("~MPC: Assemble matrix (Finalize matrix)"):
+    with Timer(f"~MPC: {num_dofs} Assemble matrix (Finalize matrix)"):
         A.assemble()
     timer_matrix.stop()
     return A

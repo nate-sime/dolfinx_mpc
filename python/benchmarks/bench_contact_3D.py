@@ -259,7 +259,9 @@ def demo_stacked_cubes(theta, ct, noslip, num_refinements, N0, timings=False):
         fem.apply_lifting(b, [a], [bcs])
         b.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
         fem.set_bc(b, bcs)
+    dolfinx.common.list_timings(MPI.COMM_WORLD, [dolfinx.common.TimingType.wall])
 
+    return
     # Solve Linear problem
     opts = PETSc.Options()
     # opts["ksp_rtol"] = 1.0e-8
@@ -308,7 +310,7 @@ def demo_stacked_cubes(theta, ct, noslip, num_refinements, N0, timings=False):
         results_file = None
         num_procs = comm.size
         if comm.rank == 0:
-            results_file = open(f"results_bench_{num_dofs}.txt", "w")
+            results_file = open(f"results_bench_{num_dofs}_{MPI.COMM_WORLD.size}.txt", "w")
             print(f"#Procs: {num_procs}", file=results_file)
             print(f"#Dofs: {num_dofs}", file=results_file)
             print(f"#Slaves: {num_slaves}", file=results_file)
@@ -353,7 +355,7 @@ if __name__ == "__main__":
     ct = dolfinx.cpp.mesh.CellType.hexahedron if hex else dolfinx.cpp.mesh.CellType.tetrahedron
 
     # Create cache
-    demo_stacked_cubes(theta=theta, ct=ct, num_refinements=0, N0=3, noslip=noslip, timings=False)
+    #demo_stacked_cubes(theta=theta, ct=ct, num_refinements=0, N0=3, noslip=noslip, timings=False)
 
     # Run benchmark
     demo_stacked_cubes(theta=theta, ct=ct, num_refinements=ref, N0=N0, noslip=noslip, timings=True)
