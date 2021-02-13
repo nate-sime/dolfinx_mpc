@@ -11,18 +11,17 @@
 #include <iostream>
 namespace
 {
+template <typename T>
 void modify_mpc_cell(
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>& mat_set,
+                            const std::int32_t*, const T*)>& mat_set,
     const int num_dofs,
-    Eigen::Matrix<PetscScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>&
-        Ae,
+    Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>& Ae,
     const tcb::span<const int32_t>& dofs, int bs,
     const tcb::span<const int32_t>& slave_indices,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>&
         masters,
-    const std::shared_ptr<const dolfinx::graph::AdjacencyList<PetscScalar>>&
-        coeffs,
+    const std::shared_ptr<const dolfinx::graph::AdjacencyList<T>>& coeffs,
     const std::vector<std::int32_t>& local_indices,
     const std::vector<bool>& is_slave)
 {
@@ -31,12 +30,12 @@ void modify_mpc_cell(
   std::vector<std::int32_t> flattened_masters;
   std::vector<std::int32_t> flattened_slaves;
   std::vector<std::int32_t> slaves_loc;
-  std::vector<PetscScalar> flattened_coeffs;
+  std::vector<T> flattened_coeffs;
   for (std::int32_t i = 0; i < slave_indices.size(); ++i)
   {
     tcb::span<const std::int32_t> local_masters
         = masters->links(slave_indices[i]);
-    tcb::span<const PetscScalar> local_coeffs = coeffs->links(slave_indices[i]);
+    tcb::span<const T> local_coeffs = coeffs->links(slave_indices[i]);
 
     for (std::int32_t j = 0; j < local_masters.size(); ++j)
     {
@@ -49,20 +48,18 @@ void modify_mpc_cell(
   // Matrices used for master insertion
   std::vector<std::int32_t> m0(1);
   std::vector<std::int32_t> m1(1);
-  Eigen::Matrix<PetscScalar, 1, 1, Eigen::RowMajor> Amaster(1, 1);
-  Eigen::Matrix<PetscScalar, Eigen::Dynamic, 1, Eigen::ColMajor> Arow(
-      bs * num_dofs, 1);
-  Eigen::Matrix<PetscScalar, 1, Eigen::Dynamic, Eigen::RowMajor> Acol(
-      1, bs * num_dofs);
-  Eigen::Matrix<PetscScalar, 1, 1, Eigen::RowMajor> Am0m1;
+  Eigen::Matrix<T, 1, 1, Eigen::RowMajor> Amaster(1, 1);
+  Eigen::Matrix<T, Eigen::Dynamic, 1, Eigen::ColMajor> Arow(bs * num_dofs, 1);
+  Eigen::Matrix<T, 1, Eigen::Dynamic, Eigen::RowMajor> Acol(1, bs * num_dofs);
+  Eigen::Matrix<T, 1, 1, Eigen::RowMajor> Am0m1;
   // Create copy to use for distribution to master dofs
-  Eigen::Matrix<PetscScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
-      Ae_original = Ae;
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Ae_original
+      = Ae;
 
   // Build matrix where all slave-slave entries are 0 for usage to row and
   // column addition
-  Eigen::Matrix<PetscScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
-      Ae_stripped(bs * num_dofs, bs * num_dofs);
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Ae_stripped(
+      bs * num_dofs, bs * num_dofs);
   for (std::int32_t i = 0; i < bs * num_dofs; ++i)
   {
     for (std::int32_t j = 0; j < bs * num_dofs; ++j)
@@ -79,7 +76,7 @@ void modify_mpc_cell(
   {
     const std::int32_t& local_index = flattened_slaves[i];
     const std::int32_t& master = flattened_masters[i];
-    const PetscScalar& coeff = flattened_coeffs[i];
+    const T& coeff = flattened_coeffs[i];
 
     // Remove contributions form Ae
     Ae.col(local_index).setZero();
@@ -108,8 +105,8 @@ void modify_mpc_cell(
     {
       const std::int32_t& other_local_index = flattened_slaves[j];
       const std::int32_t& other_master = flattened_masters[j];
-      const PetscScalar& other_coeff = flattened_coeffs[j];
-      const PetscScalar c0c1 = coeff * other_coeff;
+      const T& other_coeff = flattened_coeffs[j];
+      const T c0c1 = coeff * other_coeff;
       m1[0] = other_master;
 
       if (slaves_loc[i] != slaves_loc[j])
@@ -128,30 +125,27 @@ void modify_mpc_cell(
   }
 } // namespace
 //-----------------------------------------------------------------------------
+template <typename T>
 void assemble_exterior_facets(
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
+                            const std::int32_t*, const T*)>&
         mat_add_block_values,
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
-        mat_add_values,
+                            const std::int32_t*, const T*)>& mat_add_values,
     const dolfinx::mesh::Mesh& mesh,
     const std::vector<std::int32_t>& active_facets,
     const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
     const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
     const std::vector<bool>& bc0, const std::vector<bool>& bc1,
-    const std::function<void(PetscScalar*, const PetscScalar*,
-                             const PetscScalar*, const double*, const int*,
+    const std::function<void(T*, const T*, const T*, const double*, const int*,
                              const std::uint8_t*, const std::uint32_t)>& kernel,
-    const dolfinx::common::array2d<double>& coeffs,
-    const std::vector<PetscScalar>& constants,
+    const dolfinx::common::array2d<T>& coeffs, const std::vector<T>& constants,
     const std::vector<std::uint32_t>& cell_info,
     const std::vector<std::uint8_t>& perms,
     tcb::span<const std::int32_t> slaves,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>
         masters,
-    const std::shared_ptr<const dolfinx::graph::AdjacencyList<PetscScalar>>&
-        coefficients,
+    const std::shared_ptr<const dolfinx::graph::AdjacencyList<T>>& coefficients,
     tcb::span<const std::int32_t> slave_cells,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>&
         cell_to_slaves)
@@ -191,8 +185,8 @@ void assemble_exterior_facets(
   // Iterate over all facets
   const int num_dofs0 = dofmap0.links(0).size();
   const int num_dofs1 = dofmap1.links(0).size();
-  Eigen::Matrix<PetscScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
-      Ae(bs0 * num_dofs0, bs0 * num_dofs1);
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Ae(
+      bs0 * num_dofs0, bs0 * num_dofs1);
   std::vector<double> coordinate_dofs(num_dofs_g * gdim);
 
   for (std::int32_t l = 0; l < active_facets.size(); ++l)
@@ -272,38 +266,35 @@ void assemble_exterior_facets(
             break;
         }
       }
-      modify_mpc_cell(mat_add_values, num_dofs0, Ae, dmap0, bs0, slave_indices,
-                      masters, coefficients, local_indices, is_slave);
+      modify_mpc_cell<T>(mat_add_values, num_dofs0, Ae, dmap0, bs0,
+                         slave_indices, masters, coefficients, local_indices,
+                         is_slave);
     }
     mat_add_block_values(dmap0.size(), dmap0.data(), dmap1.size(), dmap1.data(),
                          Ae.data());
   }
 } // namespace
 //-----------------------------------------------------------------------------
-
+template <typename T>
 void assemble_cells_impl(
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
+                            const std::int32_t*, const T*)>&
         mat_add_block_values,
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
-        mat_add_values,
+                            const std::int32_t*, const T*)>& mat_add_values,
     const dolfinx::mesh::Geometry& geometry,
     const std::vector<std::int32_t>& active_cells,
     const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap0, int bs0,
     const dolfinx::graph::AdjacencyList<std::int32_t>& dofmap1, int bs1,
     const std::vector<bool>& bc0, const std::vector<bool>& bc1,
-    const std::function<void(PetscScalar*, const PetscScalar*,
-                             const PetscScalar*, const double*, const int*,
+    const std::function<void(T*, const T*, const T*, const double*, const int*,
                              const std::uint8_t*, const std::uint32_t)>& kernel,
-    const dolfinx::common::array2d<double>& coeffs,
-    const std::vector<PetscScalar>& constants,
+    const dolfinx::common::array2d<T>& coeffs, const std::vector<T>& constants,
     const std::vector<std::uint32_t>& cell_info,
     tcb::span<const std::int32_t> slaves,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>
         masters,
-    const std::shared_ptr<const dolfinx::graph::AdjacencyList<PetscScalar>>&
-        coefficients,
+    const std::shared_ptr<const dolfinx::graph::AdjacencyList<T>>& coefficients,
     tcb::span<const std::int32_t> slave_cells,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>&
         cell_to_slaves)
@@ -342,8 +333,8 @@ void assemble_cells_impl(
   const int num_dofs1 = dofmap1.links(0).size();
   const int ndim0 = num_dofs0 * bs0;
   const int ndim1 = num_dofs1 * bs1;
-  Eigen::Matrix<PetscScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
-      Ae(bs0 * num_dofs0, bs1 * num_dofs1);
+  Eigen::Matrix<T, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Ae(
+      bs0 * num_dofs0, bs1 * num_dofs1);
   for (std::int32_t l = 0; l < active_cells.size(); ++l)
   {
     // Get cell coordinates/geometry
@@ -412,27 +403,27 @@ void assemble_cells_impl(
             break;
         }
       }
-      modify_mpc_cell(mat_add_values, num_dofs0, Ae, dofs0, bs0, slave_indices,
-                      masters, coefficients, local_indices, is_slave);
+      modify_mpc_cell<T>(mat_add_values, num_dofs0, Ae, dofs0, bs0,
+                         slave_indices, masters, coefficients, local_indices,
+                         is_slave);
     }
     mat_add_block_values(dofs0.size(), dofs0.data(), dofs1.size(), dofs1.data(),
                          Ae.data());
   }
 }
 //-----------------------------------------------------------------------------
+template <typename T>
 void assemble_matrix_impl(
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
+                            const std::int32_t*, const T*)>&
         mat_add_block_values,
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
-        mat_add_values,
-    const dolfinx::fem::Form<PetscScalar>& a, const std::vector<bool>& bc0,
+                            const std::int32_t*, const T*)>& mat_add_values,
+    const dolfinx::fem::Form<T>& a, const std::vector<bool>& bc0,
     const std::vector<bool>& bc1, tcb::span<const std::int32_t> slaves,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>
         masters,
-    const std::shared_ptr<const dolfinx::graph::AdjacencyList<PetscScalar>>&
-        coefficients,
+    const std::shared_ptr<const dolfinx::graph::AdjacencyList<T>>& coefficients,
     tcb::span<const std::int32_t> slave_cells,
     const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>&
         cell_to_slaves)
@@ -455,11 +446,10 @@ void assemble_matrix_impl(
   const dolfinx::graph::AdjacencyList<std::int32_t>& dofs1 = dofmap1->list();
   const int bs1 = dofmap1->bs();
   // Prepare constants
-  const std::vector<PetscScalar> constants = pack_constants(a);
+  const std::vector<T> constants = pack_constants(a);
 
   // Prepare coefficients
-  const dolfinx::common::array2d<double> coeffs
-      = dolfinx::fem::pack_coefficients(a);
+  const dolfinx::common::array2d<T> coeffs = dolfinx::fem::pack_coefficients(a);
 
   const bool needs_permutation_data = a.needs_permutation_data();
   if (needs_permutation_data)
@@ -473,10 +463,10 @@ void assemble_matrix_impl(
     const auto& fn = a.kernel(dolfinx::fem::IntegralType::cell, i);
     const std::vector<std::int32_t>& active_cells
         = a.domains(dolfinx::fem::IntegralType::cell, i);
-    assemble_cells_impl(mat_add_block_values, mat_add_values, mesh->geometry(),
-                        active_cells, dofs0, bs0, dofs1, bs1, bc0, bc1, fn,
-                        coeffs, constants, cell_info, slaves, masters,
-                        coefficients, slave_cells, cell_to_slaves);
+    assemble_cells_impl<T>(
+        mat_add_block_values, mat_add_values, mesh->geometry(), active_cells,
+        dofs0, bs0, dofs1, bs1, bc0, bc1, fn, coeffs, constants, cell_info,
+        slaves, masters, coefficients, slave_cells, cell_to_slaves);
   }
   if (a.num_integrals(dolfinx::fem::IntegralType::exterior_facet) > 0
       or a.num_integrals(dolfinx::fem::IntegralType::interior_facet) > 0)
@@ -494,7 +484,7 @@ void assemble_matrix_impl(
       const auto& fn = a.kernel(dolfinx::fem::IntegralType::exterior_facet, i);
       const std::vector<std::int32_t>& active_facets
           = a.domains(dolfinx::fem::IntegralType::exterior_facet, i);
-      assemble_exterior_facets(
+      assemble_exterior_facets<T>(
           mat_add_block_values, mat_add_values, *mesh, active_facets, dofs0,
           bs0, dofs1, bs1, bc0, bc1, fn, coeffs, constants, cell_info, perms,
           slaves, masters, coefficients, slave_cells, cell_to_slaves);
@@ -516,17 +506,15 @@ void assemble_matrix_impl(
 }
 } // namespace
 //-----------------------------------------------------------------------------
-
+template <typename T>
 void dolfinx_mpc::assemble_matrix(
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>&
-        mat_add_block,
+                            const std::int32_t*, const T*)>& mat_add_block,
     const std::function<int(std::int32_t, const std::int32_t*, std::int32_t,
-                            const std::int32_t*, const PetscScalar*)>& mat_add,
-    const dolfinx::fem::Form<PetscScalar>& a,
+                            const std::int32_t*, const T*)>& mat_add,
+    const dolfinx::fem::Form<T>& a,
     const std::shared_ptr<const dolfinx_mpc::MultiPointConstraint>& mpc,
-    const std::vector<
-        std::shared_ptr<const dolfinx::fem::DirichletBC<PetscScalar>>>& bcs)
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs)
 {
   dolfinx::common::Timer timer_s("~MPC: Assembly (C++)");
 
@@ -562,22 +550,21 @@ void dolfinx_mpc::assemble_matrix(
   const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>
       masters = mpc->masters_local();
   const tcb::span<const std::int32_t> slaves = mpc->slaves();
-  const std::shared_ptr<const dolfinx::graph::AdjacencyList<PetscScalar>>&
-      coefficients
+  const std::shared_ptr<const dolfinx::graph::AdjacencyList<T>>& coefficients
       = mpc->coeffs();
   tcb::span<const std::int32_t> slave_cells = mpc->slave_cells();
   const std::shared_ptr<const dolfinx::graph::AdjacencyList<std::int32_t>>&
       cell_to_slaves
       = mpc->cell_to_slaves();
 
-  assemble_matrix_impl(mat_add_block, mat_add, a, dof_marker0, dof_marker1,
-                       slaves, masters, coefficients, slave_cells,
-                       cell_to_slaves);
+  assemble_matrix_impl<T>(mat_add_block, mat_add, a, dof_marker0, dof_marker1,
+                          slaves, masters, coefficients, slave_cells,
+                          cell_to_slaves);
 
   // Add one on diagonal for slave dofs
   const std::int32_t num_local_slaves = mpc->num_local_slaves();
   std::vector<std::int32_t> diag_dof(1);
-  std::vector<PetscScalar> diag_value(1);
+  std::vector<T> diag_value(1);
   diag_value[0] = 1;
   for (std::int32_t i = 0; i < num_local_slaves; ++i)
   {
