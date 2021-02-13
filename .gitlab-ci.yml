@@ -8,9 +8,11 @@ fast-complex:
   image:
     name: dolfinx/dolfinx
     entrypoint: [""]
+  variables:
+    PETSC_ARCH: "linux-gnu-complex-32"
+    PYTHONPATH: "/usr/local/dolfinx-complex/lib/python3.8/dist-packages:/usr/local/gmsh-4.6.0-Linux64-sdk/lib"
 
   before_script:
-    - dolfinx-complex-mode
     - flake8 .
     - export PETSC_ARCH="linux-gnu-complex-32"
     - export LD_LIBRARY_PATH="/usr/local/petsc/linux-gnu-complex-32/lib/:/usr/local/dolfinx-complex/lib/:/usr/lib/x86_64-linux-gnu/hdf5/mpich/:$LD_LIBRARY_PATH"
@@ -80,7 +82,8 @@ nightly-complex:
     PETSC_ARCH: "linux-gnu-complex-32"
   before_script:
     - flake8 .
-    - . dolfinx-complex-mode"
+    - export PETSC_ARCH="linux-gnu-complex-32"
+    - export LD_LIBRARY_PATH="/usr/local/petsc/linux-gnu-complex-32/lib/:/usr/lib/x86_64-linux-gnu/hdf5/mpich/:$LD_LIBRARY_PATH"
     - export HDF5_MPI="ON"
     - export CC=mpicc
     - export HDF5_DIR="/usr/lib/x86_64-linux-gnu/hdf5/mpich/"

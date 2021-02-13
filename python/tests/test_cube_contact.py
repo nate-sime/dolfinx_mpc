@@ -162,7 +162,7 @@ def generate_hex_boxes():
     return (mesh, ft)
 
 
-@ pytest.mark.parametrize("nonslip", [True, False])
+@pytest.mark.parametrize("nonslip", [True, False])
 def test_cube_contact(generate_hex_boxes, nonslip):
     comm = MPI.COMM_WORLD
     # Generate mesh
