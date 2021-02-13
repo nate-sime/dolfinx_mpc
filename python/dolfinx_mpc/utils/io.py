@@ -67,8 +67,7 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
         for i, element in enumerate(topologies.keys()):
             properties = model.mesh.getElementProperties(element)
             name, dim, order, num_nodes, local_coords, _ = properties
-            cell_information[i] = {"id": element, "dim": dim,
-                                   "num_nodes": num_nodes}
+            cell_information[i] = {"id": element, "dim": dim, "num_nodes": num_nodes}
             cell_dimensions[i] = dim
 
         # Sort elements by ascending dimension
@@ -110,29 +109,24 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
     mesh = create_mesh(MPI.COMM_WORLD, cells, x[:, :gdim], ufl_domain)
     # Create MeshTags for cells
     if cell_data:
-        local_entities, local_values = extract_local_entities(
-            mesh, mesh.topology.dim, cells, cell_values)
+        local_entities, local_values = extract_local_entities(mesh, mesh.topology.dim, cells, cell_values)
         mesh.topology.create_connectivity(mesh.topology.dim, 0)
         adj = AdjacencyList_int32(local_entities)
-        ct = create_meshtags(mesh, mesh.topology.dim,
-                             adj, numpy.int32(local_values))
+        ct = create_meshtags(mesh, mesh.topology.dim, adj, numpy.int32(local_values))
         ct.name = "Cell tags"
 
     # Create MeshTags for facets
     if facet_data:
         # Permute facets from MSH to Dolfin-X ordering
-        facet_type = cell_entity_type(to_type(str(ufl_domain.ufl_cell())),
-                                      mesh.topology.dim - 1)
+        facet_type = cell_entity_type(to_type(str(ufl_domain.ufl_cell())), mesh.topology.dim - 1)
         gmsh_facet_perm = perm_gmsh(facet_type, num_facet_nodes)
         marked_facets = marked_facets[:, gmsh_facet_perm]
-
-        local_entities, local_values = extract_local_entities(
-            mesh, mesh.topology.dim - 1, marked_facets, facet_values)
-        mesh.topology.create_connectivity(
-            mesh.topology.dim - 1, mesh.topology.dim)
+        local_entities, local_values = extract_local_entities(mesh, mesh.topology.dim - 1,
+                                                              numpy.array(marked_facets, dtype=numpy.int32),
+                                                              numpy.array(facet_values, dtype=numpy.int32))
+        mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
         adj = AdjacencyList_int32(local_entities)
-        ft = create_meshtags(mesh, mesh.topology.dim - 1,
-                             adj, numpy.int32(local_values))
+        ft = create_meshtags(mesh, mesh.topology.dim - 1, adj, numpy.int32(local_values))
         ft.name = "Facet tags"
 
     if cell_data and facet_data:

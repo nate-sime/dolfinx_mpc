@@ -154,16 +154,15 @@ def generate_hex_boxes():
         gmsh.option.setNumber("Mesh.MaxNumThreads3D", MPI.COMM_WORLD.size)
         gmsh.model.mesh.generate(3)
         gmsh.model.mesh.setOrder(1)
-    mesh, ft = dolfinx_mpc.utils.gmsh_model_to_mesh(gmsh.model,
-                                                    facet_data=True)
+    mesh, ft = dolfinx_mpc.utils.gmsh_model_to_mesh(gmsh.model, facet_data=True)
     gmsh.clear()
     gmsh.finalize()
     # NOTE: Hex mesh must be rotated after generation due to gmsh API
-    mesh.geometry.x = np.dot(r_matrix, mesh.geometry.x.T).T
+    mesh.geometry.x[:] = np.dot(r_matrix, mesh.geometry.x.T).T
     return (mesh, ft)
 
 
-@pytest.mark.parametrize("nonslip", [True, False])
+@ pytest.mark.parametrize("nonslip", [True, False])
 def test_cube_contact(generate_hex_boxes, nonslip):
     comm = MPI.COMM_WORLD
     # Generate mesh

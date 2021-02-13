@@ -90,8 +90,7 @@ dolfinx_mpc::get_basis_functions(
 
   // FIXME: Add proper interface for num coordinate dofs
   const int num_dofs_g = x_dofmap.num_links(0);
-  const Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>& x_g
-      = mesh->geometry().x();
+  const dolfinx::common::array2d<double>& x_g = mesh->geometry().x();
   Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
       coordinate_dofs(num_dofs_g, gdim);
 
@@ -135,7 +134,11 @@ dolfinx_mpc::get_basis_functions(
   // Get cell geometry (coordinate dofs)
   auto x_dofs = x_dofmap.links(index);
   for (int i = 0; i < num_dofs_g; ++i)
-    coordinate_dofs.row(i) = x_g.row(x_dofs[i]).head(gdim);
+  {
+    tcb::span<const double> coord = x_g.row(x_dofs[i]);
+    for (int j = 0; j < gdim; ++j)
+      coordinate_dofs(i, j) = coord[j];
+  }
   Eigen::Map<const Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic,
                                 Eigen::RowMajor>>
       point(x.data(), 1, gdim);
@@ -373,11 +376,14 @@ Eigen::Vector3d dolfinx_mpc::create_average_normal(
     std::int32_t dim, const tcb::span<const std::int32_t>& entities)
 {
   assert(entities.size() > 0);
-  auto normals = dolfinx::mesh::cell_normals(*V->mesh(), dim, entities);
-  Eigen::Vector3d normal(normals.row(0));
-  for (std::int32_t i = 1; i < normals.rows(); ++i)
+  dolfinx::common::array2d<double> normals
+      = dolfinx::mesh::cell_normals(*V->mesh(), dim, entities);
+  Eigen::Map<const Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
+      normals_eigen(normals.data(), normals.shape[0], normals.shape[1]);
+  Eigen::Vector3d normal(normals_eigen.row(0));
+  for (std::int32_t i = 1; i < normals.shape[0]; ++i)
   {
-    Eigen::Vector3d normal_i(normals.row(i));
+    Eigen::Vector3d normal_i = normals_eigen.row(i);
     double sign = normal.dot(normal_i) / std::abs(normal.dot(normal_i));
     normal += sign * normal_i;
   }
