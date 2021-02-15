@@ -99,8 +99,8 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
         cell_values = numpy.empty((0,))
         if facet_data:
             num_facet_nodes = MPI.COMM_WORLD.bcast(None, root=0)
-            marked_facets = numpy.empty((0, num_facet_nodes))
-            facet_values = numpy.empty((0,))
+            marked_facets = numpy.empty((0, num_facet_nodes), numpy.int32)
+            facet_values = numpy.empty((0,), dtype=numpy.int32)
 
     # Create distributed mesh
     ufl_domain = ufl_mesh_from_gmsh(cell_id, gdim)
