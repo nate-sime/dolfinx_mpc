@@ -86,12 +86,12 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
                     cell_information[perm_sort[-2]]["num_nodes"], root=0)
                 gmsh_facet_id = cell_information[perm_sort[-2]]["id"]
                 marked_facets = topologies[gmsh_facet_id]["topology"]
-                facet_values = topologies[gmsh_facet_id]["cell_data"]
+                facet_values = numpy.asarray(topologies[gmsh_facet_id]["cell_data"], dtype=numpy.int32)
             else:
                 raise ValueError("No facet data found in file.")
 
         cells = topologies[cell_id]["topology"]
-        cell_values = topologies[cell_id]["cell_data"]
+        cell_values = numpy.asarray(topologies[cell_id]["cell_data"], dtype=numpy.int32)
 
     else:
         cell_id, num_nodes = MPI.COMM_WORLD.bcast([None, None], root=0)
@@ -105,7 +105,7 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
     # Create distributed mesh
     ufl_domain = ufl_mesh_from_gmsh(cell_id, gdim)
     gmsh_cell_perm = perm_gmsh(to_type(str(ufl_domain.ufl_cell())), num_nodes)
-    cells = cells[:, gmsh_cell_perm]
+    cells = numpy.asarray(cells[:, gmsh_cell_perm], dtype=numpy.int64)
     mesh = create_mesh(MPI.COMM_WORLD, cells, x[:, :gdim], ufl_domain)
     # Create MeshTags for cells
     if cell_data:
@@ -120,10 +120,8 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
         # Permute facets from MSH to Dolfin-X ordering
         facet_type = cell_entity_type(to_type(str(ufl_domain.ufl_cell())), mesh.topology.dim - 1)
         gmsh_facet_perm = perm_gmsh(facet_type, num_facet_nodes)
-        marked_facets = marked_facets[:, gmsh_facet_perm]
-        local_entities, local_values = extract_local_entities(mesh, mesh.topology.dim - 1,
-                                                              numpy.array(marked_facets, dtype=numpy.int32),
-                                                              numpy.array(facet_values, dtype=numpy.int32))
+        marked_facets = numpy.asarray(marked_facets[:, gmsh_facet_perm], dtype=numpy.int32)
+        local_entities, local_values = extract_local_entities(mesh, mesh.topology.dim - 1, marked_facets, facet_values)
         mesh.topology.create_connectivity(mesh.topology.dim - 1, mesh.topology.dim)
         adj = AdjacencyList_int32(local_entities)
         ft = create_meshtags(mesh, mesh.topology.dim - 1, adj, numpy.int32(local_values))
