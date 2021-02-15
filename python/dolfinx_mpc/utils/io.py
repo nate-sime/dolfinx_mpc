@@ -96,7 +96,7 @@ def gmsh_model_to_mesh(model, cell_data=False, facet_data=False, gdim=None):
     else:
         cell_id, num_nodes = MPI.COMM_WORLD.bcast([None, None], root=0)
         cells, x = numpy.empty([0, num_nodes]), numpy.empty([0, gdim])
-        cell_values = numpy.empty((0,))
+        cell_values = numpy.empty((0,), dtype=numpy.int32)
         if facet_data:
             num_facet_nodes = MPI.COMM_WORLD.bcast(None, root=0)
             marked_facets = numpy.empty((0, num_facet_nodes), numpy.int32)

@@ -17,7 +17,6 @@
 #include <dolfinx/fem/Form.h>
 #include <dolfinx/fem/Function.h>
 #include <dolfinx/fem/FunctionSpace.h>
-#include <dolfinx/fem/sparsitybuild.h>
 #include <dolfinx/geometry/utils.h>
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/la/PETScMatrix.h>
@@ -29,45 +28,6 @@
 
 using namespace dolfinx_mpc;
 
-//-----------------------------------------------------------------------------
-void dolfinx_mpc::build_standard_pattern(
-    dolfinx::la::SparsityPattern& pattern,
-    const dolfinx::fem::Form<PetscScalar>& a)
-{
-  dolfinx::common::Timer timer("~MPC: Create sparsity pattern (Classic)");
-  // Get dof maps
-  std::array<const std::reference_wrapper<const dolfinx::fem::DofMap>, 2>
-      dofmaps{*a.function_spaces().at(0)->dofmap(),
-              *a.function_spaces().at(1)->dofmap()};
-
-  // Get mesh
-  assert(a.mesh());
-  const dolfinx::mesh::Mesh& mesh = *(a.mesh());
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::cell).size() > 0)
-  {
-    dolfinx::fem::sparsitybuild::cells(pattern, mesh.topology(),
-                                       {{dofmaps[0], dofmaps[1]}});
-  }
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::interior_facet).size() > 0)
-  {
-    mesh.topology_mutable().create_entities(mesh.topology().dim() - 1);
-    mesh.topology_mutable().create_connectivity(mesh.topology().dim() - 1,
-                                                mesh.topology().dim());
-    dolfinx::fem::sparsitybuild::interior_facets(pattern, mesh.topology(),
-                                                 {{dofmaps[0], dofmaps[1]}});
-  }
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::exterior_facet).size() > 0)
-  {
-    mesh.topology_mutable().create_entities(mesh.topology().dim() - 1);
-    mesh.topology_mutable().create_connectivity(mesh.topology().dim() - 1,
-                                                mesh.topology().dim());
-    dolfinx::fem::sparsitybuild::exterior_facets(pattern, mesh.topology(),
-                                                 {{dofmaps[0], dofmaps[1]}});
-  }
-}
 //-----------------------------------------------------------------------------
 Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
 dolfinx_mpc::get_basis_functions(
@@ -191,7 +151,7 @@ void dolfinx_mpc::add_pattern_diagonal(dolfinx::la::SparsityPattern& pattern,
 //-----------------------------------------------------------------------------
 dolfinx::la::PETScMatrix dolfinx_mpc::create_matrix(
     const dolfinx::fem::Form<PetscScalar>& a,
-    const std::shared_ptr<dolfinx_mpc::MultiPointConstraint> mpc,
+    const std::shared_ptr<dolfinx_mpc::MultiPointConstraint<PetscScalar>> mpc,
     const std::string& type)
 {
   dolfinx::common::Timer timer("~MPC: Create Matrix");
