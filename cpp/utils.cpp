@@ -396,7 +396,6 @@ void dolfinx_mpc::create_normal_approximation(
     const tcb::span<const std::int32_t>& entities,
     tcb::span<PetscScalar> vector)
 {
-  auto x = V->tabulate_dof_coordinates();
   const std::int32_t tdim = V->mesh()->topology().dim();
   const std::int32_t block_size = V->dofmap()->index_map_bs();
 
