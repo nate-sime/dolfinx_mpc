@@ -10,6 +10,7 @@
 #include <dolfinx/common/IndexMap.h>
 #include <dolfinx/common/MPI.h>
 #include <dolfinx/common/Timer.h>
+#include <dolfinx/common/array2d.h>
 #include <dolfinx/fem/CoordinateElement.h>
 #include <dolfinx/fem/DirichletBC.h>
 #include <dolfinx/fem/DofMap.h>
@@ -17,7 +18,6 @@
 #include <dolfinx/fem/Form.h>
 #include <dolfinx/fem/Function.h>
 #include <dolfinx/fem/FunctionSpace.h>
-#include <dolfinx/fem/sparsitybuild.h>
 #include <dolfinx/geometry/utils.h>
 #include <dolfinx/graph/AdjacencyList.h>
 #include <dolfinx/la/PETScMatrix.h>
@@ -29,45 +29,6 @@
 
 using namespace dolfinx_mpc;
 
-//-----------------------------------------------------------------------------
-void dolfinx_mpc::build_standard_pattern(
-    dolfinx::la::SparsityPattern& pattern,
-    const dolfinx::fem::Form<PetscScalar>& a)
-{
-  dolfinx::common::Timer timer("~MPC: Create sparsity pattern (Classic)");
-  // Get dof maps
-  std::array<const std::reference_wrapper<const dolfinx::fem::DofMap>, 2>
-      dofmaps{*a.function_spaces().at(0)->dofmap(),
-              *a.function_spaces().at(1)->dofmap()};
-
-  // Get mesh
-  assert(a.mesh());
-  const dolfinx::mesh::Mesh& mesh = *(a.mesh());
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::cell).size() > 0)
-  {
-    dolfinx::fem::sparsitybuild::cells(pattern, mesh.topology(),
-                                       {{dofmaps[0], dofmaps[1]}});
-  }
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::interior_facet).size() > 0)
-  {
-    mesh.topology_mutable().create_entities(mesh.topology().dim() - 1);
-    mesh.topology_mutable().create_connectivity(mesh.topology().dim() - 1,
-                                                mesh.topology().dim());
-    dolfinx::fem::sparsitybuild::interior_facets(pattern, mesh.topology(),
-                                                 {{dofmaps[0], dofmaps[1]}});
-  }
-
-  if (a.integral_ids(dolfinx::fem::IntegralType::exterior_facet).size() > 0)
-  {
-    mesh.topology_mutable().create_entities(mesh.topology().dim() - 1);
-    mesh.topology_mutable().create_connectivity(mesh.topology().dim() - 1,
-                                                mesh.topology().dim());
-    dolfinx::fem::sparsitybuild::exterior_facets(pattern, mesh.topology(),
-                                                 {{dofmaps[0], dofmaps[1]}});
-  }
-}
 //-----------------------------------------------------------------------------
 Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
 dolfinx_mpc::get_basis_functions(
@@ -90,10 +51,8 @@ dolfinx_mpc::get_basis_functions(
 
   // FIXME: Add proper interface for num coordinate dofs
   const int num_dofs_g = x_dofmap.num_links(0);
-  const Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>& x_g
-      = mesh->geometry().x();
-  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>
-      coordinate_dofs(num_dofs_g, gdim);
+  const dolfinx::array2d<double>& x_g = mesh->geometry().x();
+  dolfinx::array2d<double> coordinate_dofs(num_dofs_g, gdim);
 
   // Get coordinate mapping
   const dolfinx::fem::CoordinateElement& cmap = mesh->geometry().cmap();
@@ -110,8 +69,7 @@ dolfinx_mpc::get_basis_functions(
   std::vector<double> J(gdim * tdim);
   std::array<double, 1> detJ;
   std::vector<double> K(tdim * gdim);
-  Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> X(1,
-                                                                          tdim);
+  dolfinx::array2d<double> X(1, tdim);
   // Prepare basis function data structures
   std::vector<double> basis_reference_values(space_dimension
                                              * reference_value_size);
@@ -135,12 +93,16 @@ dolfinx_mpc::get_basis_functions(
   // Get cell geometry (coordinate dofs)
   auto x_dofs = x_dofmap.links(index);
   for (int i = 0; i < num_dofs_g; ++i)
-    coordinate_dofs.row(i) = x_g.row(x_dofs[i]).head(gdim);
-  Eigen::Map<const Eigen::Array<double, Eigen::Dynamic, Eigen::Dynamic,
-                                Eigen::RowMajor>>
-      point(x.data(), 1, gdim);
+  {
+    tcb::span<const double> coord = x_g.row(x_dofs[i]);
+    for (int j = 0; j < gdim; ++j)
+      coordinate_dofs(i, j) = coord[j];
+  }
+  dolfinx::array2d<double> xp(1, gdim);
+  for (int j = 0; j < gdim; ++j)
+    xp(0, j) = x[j];
   // Compute reference coordinates X, and J, detJ and K
-  cmap.compute_reference_geometry(X, J, detJ, K, point, coordinate_dofs);
+  cmap.compute_reference_geometry(X, J, detJ, K, xp, coordinate_dofs);
 
   // Compute basis on reference element
   element->evaluate_reference_basis(basis_reference_values, X);
@@ -177,18 +139,9 @@ std::map<std::int32_t, std::set<int>> dolfinx_mpc::compute_shared_indices(
   return V->dofmap()->index_map->compute_shared_indices();
 };
 //-----------------------------------------------------------------------------
-void dolfinx_mpc::add_pattern_diagonal(dolfinx::la::SparsityPattern& pattern,
-                                       tcb::span<const std::int32_t> blocks)
-{
-
-  for (std::int32_t i = 0; i < blocks.size(); ++i)
-    pattern.insert(tcb::span(blocks.data() + i, 1),
-                   tcb::span(blocks.data() + i, 1));
-}
-//-----------------------------------------------------------------------------
 dolfinx::la::PETScMatrix dolfinx_mpc::create_matrix(
     const dolfinx::fem::Form<PetscScalar>& a,
-    const std::shared_ptr<dolfinx_mpc::MultiPointConstraint> mpc,
+    const std::shared_ptr<dolfinx_mpc::MultiPointConstraint<PetscScalar>> mpc,
     const std::string& type)
 {
   dolfinx::common::Timer timer("~MPC: Create Matrix");
@@ -373,11 +326,14 @@ Eigen::Vector3d dolfinx_mpc::create_average_normal(
     std::int32_t dim, const tcb::span<const std::int32_t>& entities)
 {
   assert(entities.size() > 0);
-  auto normals = dolfinx::mesh::cell_normals(*V->mesh(), dim, entities);
-  Eigen::Vector3d normal(normals.row(0));
-  for (std::int32_t i = 1; i < normals.rows(); ++i)
+  dolfinx::array2d<double> normals
+      = dolfinx::mesh::cell_normals(*V->mesh(), dim, entities);
+  Eigen::Map<const Eigen::Array<double, Eigen::Dynamic, 3, Eigen::RowMajor>>
+      normals_eigen(normals.data(), normals.shape[0], normals.shape[1]);
+  Eigen::Vector3d normal(normals_eigen.row(0));
+  for (std::int32_t i = 1; i < normals.shape[0]; ++i)
   {
-    Eigen::Vector3d normal_i(normals.row(i));
+    Eigen::Vector3d normal_i = normals_eigen.row(i);
     double sign = normal.dot(normal_i) / std::abs(normal.dot(normal_i));
     normal += sign * normal_i;
   }
@@ -390,7 +346,6 @@ void dolfinx_mpc::create_normal_approximation(
     const tcb::span<const std::int32_t>& entities,
     tcb::span<PetscScalar> vector)
 {
-  auto x = V->tabulate_dof_coordinates();
   const std::int32_t tdim = V->mesh()->topology().dim();
   const std::int32_t block_size = V->dofmap()->index_map_bs();
 
