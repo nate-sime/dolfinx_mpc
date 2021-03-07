@@ -305,11 +305,11 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
   if (mpi_size == 1)
   {
     assert(slaves_wo_local_collision.size() == 0);
+    std::cout << "HERE!\n";
+
     std::vector<std::int64_t> masters_out;
     std::vector<PetscScalar> coeffs_out;
-    std::vector<std::int32_t> offsets_out;
-    offsets_out.reserve(local_slaves_as_glob.size() + 1);
-    offsets_out[0] = 0;
+    std::vector<std::int32_t> offsets_out(local_slaves_as_glob.size() + 1, 0);
     // Flatten the maps to 1D arrays (assuming all slaves are local slaves)
     for (std::int32_t i = 0; i < local_slaves_as_glob.size(); i++)
     {
@@ -324,7 +324,6 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
                         local_coeffs[slave].end());
       offsets_out[i + 1] = masters_out.size();
     }
-
     // Serial assumptions
     std::vector<std::int32_t> owners(masters_out.size());
     std::fill(owners.begin(), owners.end(), 1);
