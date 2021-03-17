@@ -138,8 +138,6 @@ mpc_data dolfinx_mpc::create_contact_slip_condition(
         coeffs[slave_glob] = coeffs_i;
         owners[slave_glob] = owners_i;
       }
-      else
-        ghost_slaves.push_back(slave_i);
     }
     else
       ghost_slaves.push_back(slave_i);
