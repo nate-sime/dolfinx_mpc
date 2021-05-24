@@ -44,7 +44,7 @@ def assemble_vector(form, constraint,
     # Get index map and ghost info
     index_map = constraint.index_map()
     vector = dolfinx.cpp.la.create_vector(index_map, block_size)
-    ufc_form = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form)
+    ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form)
 
     # Pack constants and coefficients
     cpp_form = dolfinx.Form(form)._cpp_object
