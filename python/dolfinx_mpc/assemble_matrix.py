@@ -150,7 +150,6 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
     block_size = dofmap.dof_layout.block_size()
     num_dofs_per_element = dofmap.dof_layout.num_dofs
 
-    gdim = V.mesh.geometry.dim
     tdim = V.mesh.topology.dim
 
     # Assemble over cells
@@ -167,7 +166,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
             cell_kernel = ufc_form.integrals(dolfinx.fem.IntegralType.cell)[i].tabulate_tensor
             active_cells = cpp_form.domains(dolfinx.fem.IntegralType.cell, id)
             slave_cell_indices = numpy.flatnonzero(numpy.isin(active_cells, slave_cells))
-            assemble_cells(A.handle, cell_kernel, active_cells[slave_cell_indices], (pos, x_dofs, x), gdim, form_coeffs,
+            assemble_cells(A.handle, cell_kernel, active_cells[slave_cell_indices], (pos, x_dofs, x), form_coeffs,
                            form_consts, permutation_info, dofs, block_size, num_dofs_per_element, mpc_data, bc_array)
         timer.stop()
 
@@ -189,7 +188,7 @@ def assemble_matrix(form, constraint, bcs=[], A=None):
             active_facets = cpp_form.domains(dolfinx.fem.IntegralType.exterior_facet, id)
             facet_info = pack_facet_info(V.mesh, active_facets)
             num_facets_per_cell = len(V.mesh.topology.connectivity(tdim, tdim - 1).links(0))
-            assemble_exterior_facets(A.handle, facet_kernel, (pos, x_dofs, x), gdim, form_coeffs, form_consts,
+            assemble_exterior_facets(A.handle, facet_kernel, (pos, x_dofs, x), form_coeffs, form_consts,
                                      perm, dofs, block_size, num_dofs_per_element, facet_info, mpc_data, bc_array,
                                      num_facets_per_cell)
         timer.stop()
@@ -228,7 +227,7 @@ def add_diagonal(A, dofs):
 
 
 @numba.njit
-def assemble_cells(A, kernel, active_cells, mesh, gdim, coeffs, constants,
+def assemble_cells(A, kernel, active_cells, mesh, coeffs, constants,
                    permutation_info, dofmap, block_size, num_dofs_per_element, mpc, bcs):
     """
     Assemble MPC contributions for cell integrals
@@ -257,7 +256,6 @@ def assemble_cells(A, kernel, active_cells, mesh, gdim, coeffs, constants,
         c = x_dofmap[cell:cell + num_vertices]
         for j in range(num_vertices):
             geometry[j, :] = x[c[j], :]
-
         A_local.fill(0.0)
         kernel(ffi_fb(A_local), ffi_fb(coeffs[cell_index, :]), ffi_fb(constants), ffi_fb(geometry),
                ffi_fb(facet_index), ffi_fb(facet_perm), permutation_info[cell_index])
@@ -385,7 +383,7 @@ def modify_mpc_cell_new(A, num_dofs, block_size, Ae, local_blocks, mpc_cell):
 
 
 @numba.njit
-def assemble_exterior_facets(A, kernel, mesh, gdim, coeffs, consts, perm,
+def assemble_exterior_facets(A, kernel, mesh, coeffs, consts, perm,
                              dofmap, block_size, num_dofs_per_element, facet_info, mpc, bcs, num_facets_per_cell):
     """Assemble MPC contributions over exterior facet integrals"""
 

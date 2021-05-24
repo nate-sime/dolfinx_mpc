@@ -51,7 +51,6 @@ def assemble_vector(form, constraint,
     form_coeffs = dolfinx.cpp.fem.pack_coefficients(cpp_form)
     form_consts = dolfinx.cpp.fem.pack_constants(cpp_form)
 
-    gdim = V.mesh.geometry.dim
     tdim = V.mesh.topology.dim
     num_dofs_per_element = V.dofmap.dof_layout.num_dofs
 
@@ -70,7 +69,7 @@ def assemble_vector(form, constraint,
             slave_cell_indices = numpy.flatnonzero(numpy.isin(active_cells, slave_cells))
             with vector.localForm() as b:
                 assemble_cells(numpy.asarray(b), cell_kernel, active_cells[slave_cell_indices],
-                               (pos, x_dofs, x), gdim, form_coeffs, form_consts,
+                               (pos, x_dofs, x), form_coeffs, form_consts,
                                permutation_info, dofs, block_size, num_dofs_per_element, mpc_data, (bc_dofs, bc_values))
         timer.stop()
 
@@ -89,7 +88,7 @@ def assemble_vector(form, constraint,
             facet_info = pack_facet_info(V.mesh, active_facets)
             num_facets_per_cell = len(V.mesh.topology.connectivity(tdim, tdim - 1).links(0))
             with vector.localForm() as b:
-                assemble_exterior_facets(numpy.asarray(b), facet_kernel, facet_info, (pos, x_dofs, x), gdim,
+                assemble_exterior_facets(numpy.asarray(b), facet_kernel, facet_info, (pos, x_dofs, x),
                                          form_coeffs, form_consts, (permutation_info, facet_permutation_info),
                                          dofs, block_size, num_dofs_per_element, mpc_data, (bc_dofs, bc_values),
                                          num_facets_per_cell)
@@ -99,7 +98,7 @@ def assemble_vector(form, constraint,
 
 
 @numba.njit
-def assemble_cells(b, kernel, active_cells, mesh, gdim, coeffs, constants, permutation_info,
+def assemble_cells(b, kernel, active_cells, mesh, coeffs, constants, permutation_info,
                    dofmap, block_size, num_dofs_per_element, mpc, bcs):
     """Assemble additional MPC contributions for cell integrals"""
     ffi_fb = ffi.from_buffer
@@ -137,7 +136,7 @@ def assemble_cells(b, kernel, active_cells, mesh, gdim, coeffs, constants, permu
 
 
 @numba.njit
-def assemble_exterior_facets(b, kernel, facet_info, mesh, gdim, coeffs, constants, permutation_info,
+def assemble_exterior_facets(b, kernel, facet_info, mesh, coeffs, constants, permutation_info,
                              dofmap, block_size, num_dofs_per_element, mpc, bcs, num_facets_per_cell):
     """Assemble additional MPC contributions for facets"""
     ffi_fb = ffi.from_buffer
