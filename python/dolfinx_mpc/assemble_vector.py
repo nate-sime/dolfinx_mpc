@@ -112,7 +112,7 @@ def assemble_cells(b, kernel, active_cells, mesh, gdim, coeffs, constants, permu
     # Unpack mesh data
     pos, x_dofmap, x = mesh
 
-    geometry = numpy.zeros((pos[1] - pos[0], gdim))
+    geometry = numpy.zeros((pos[1] - pos[0], 3))
     b_local = numpy.zeros(block_size * num_dofs_per_element, dtype=PETSc.ScalarType)
 
     for slave_cell_index, cell_index in enumerate(active_cells):
@@ -120,8 +120,7 @@ def assemble_cells(b, kernel, active_cells, mesh, gdim, coeffs, constants, permu
         cell = pos[cell_index]
         c = x_dofmap[cell:cell + num_vertices]
         for j in range(num_vertices):
-            for k in range(gdim):
-                geometry[j, k] = x[c[j], k]
+            geometry[j, :] = x[c[j], :]
         b_local.fill(0.0)
 
         kernel(ffi_fb(b_local), ffi_fb(coeffs[cell_index, :]),
@@ -152,7 +151,7 @@ def assemble_exterior_facets(b, kernel, facet_info, mesh, gdim, coeffs, constant
     # Unpack mesh data
     pos, x_dofmap, x = mesh
 
-    geometry = numpy.zeros((pos[1] - pos[0], gdim))
+    geometry = numpy.zeros((pos[1] - pos[0], 3))
     b_local = numpy.zeros(block_size * num_dofs_per_element, dtype=PETSc.ScalarType)
     slave_cells = mpc[4]
     for i in range(facet_info.shape[0]):
@@ -165,8 +164,7 @@ def assemble_exterior_facets(b, kernel, facet_info, mesh, gdim, coeffs, constant
         num_vertices = pos[cell_index + 1] - pos[cell_index]
         c = x_dofmap[cell:cell + num_vertices]
         for j in range(num_vertices):
-            for k in range(gdim):
-                geometry[j, k] = x[c[j], k]
+            geometry[j, :] = x[c[j], :]
         b_local.fill(0.0)
         facet_perm[0] = facet_perms[cell_index * num_facets_per_cell + local_facet]
         kernel(ffi_fb(b_local), ffi_fb(coeffs[cell_index, :]), ffi_fb(constants), ffi_fb(geometry),
