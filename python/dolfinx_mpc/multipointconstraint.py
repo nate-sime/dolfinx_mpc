@@ -9,7 +9,6 @@ import dolfinx_mpc.cpp
 
 from .dictcondition import create_dictionary_constraint
 from .periodic_condition import create_periodic_condition
-from .slipcondition import create_slip_condition
 
 
 class MultiPointConstraint():
