@@ -140,7 +140,7 @@ class MultiPointConstraint():
         self.add_constraint(self.V, slaves, masters, coeffs, owners, offsets)
 
     def create_slip_constraint(self, facet_marker: tuple([dolfinx.MeshTags, int]), normal: dolfinx.Function,
-                               sub_space: dolfinx.FunctionSpace = None, sub_map: numpy.ndarray = None,
+                               sub_space: dolfinx.FunctionSpace = None, sub_map: numpy.ndarray = numpy.array([]),
                                bcs: list([dolfinx.DirichletBC]) = []):
         """
         Create a slip constraint dot(u,normal)=0 over the entities defined in a dolfinx.Meshtags
