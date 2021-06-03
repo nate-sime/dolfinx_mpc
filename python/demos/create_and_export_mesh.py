@@ -330,7 +330,7 @@ def gmsh_2D_stacked(celltype, theta, verbose=False):
         # Bottom cube: Top, Right, Bottom, Left
         # Top cube : Top, Right, Bottom, Left
         facet_markers = [[4, 7, 5, 6], [3, 12, 9, 13]]
-        bottom_surfaces = gmsh.model.getBoundary(volumes[bottom_index], recursive=False)
+        bottom_surfaces = gmsh.model.getBoundary([volumes[bottom_index]], recursive=False)
 
         for entity in bottom_surfaces:
             com = gmsh.model.occ.getCenterOfMass(entity[0], abs(entity[1]))
@@ -347,7 +347,7 @@ def gmsh_2D_stacked(celltype, theta, verbose=False):
                 entities["Bottom"]["Top"][0].append(entity[1])
                 entities["Bottom"]["Top"][1] = facet_markers[0][0]
         # Physical markers for top
-        top_surfaces = gmsh.model.getBoundary(volumes[top_index], recursive=False)
+        top_surfaces = gmsh.model.getBoundary([volumes[top_index]], recursive=False)
         for entity in top_surfaces:
             com = gmsh.model.occ.getCenterOfMass(entity[0], abs(entity[1]))
             if np.allclose(com, [(x1 - x0) / 2, y1, z0]):
@@ -377,12 +377,10 @@ def gmsh_2D_stacked(celltype, theta, verbose=False):
                 gmsh.model.addPhysicalGroup(1, entities[box][surface][0], tag=entities[box][surface][1])
                 gmsh.model.setPhysicalName(1, entities[box][surface][1], box + ":" + surface)
         # Set mesh sizes on the points from the surface we are extruding
-        bottom_nodes = gmsh.model.getBoundary(volumes[bottom_index], recursive=True)
-        for entity in bottom_nodes:
-            gmsh.model.occ.mesh.setSize(entity, res)
-        top_nodes = gmsh.model.getBoundary(volumes[top_index], recursive=True)
-        for entity in top_nodes:
-            gmsh.model.occ.mesh.setSize(entity, 2 * res)
+        bottom_nodes = gmsh.model.getBoundary([volumes[bottom_index]], recursive=True)
+        gmsh.model.occ.mesh.setSize(bottom_nodes, res)
+        top_nodes = gmsh.model.getBoundary([volumes[top_index]], recursive=True)
+        gmsh.model.occ.mesh.setSize(top_nodes, 2 * res)
         # NOTE: Need to synchronize after setting mesh sizes
         gmsh.model.occ.synchronize()
         # Generate mesh
