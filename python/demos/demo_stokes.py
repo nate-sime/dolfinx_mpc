@@ -25,7 +25,7 @@ def create_mesh_gmsh(L: int = 2, H: int = 1, res: np.float64 = 0.1, theta: np.fl
     res
         Mesh resolution (uniform)
     theta
-        Rotation angle 
+        Rotation angle
     wall_marker
         Integer used to mark the walls of the channel
     outlet_marker
