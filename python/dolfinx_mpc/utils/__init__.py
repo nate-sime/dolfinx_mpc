@@ -8,9 +8,8 @@
 # flake8: noqa
 
 
-from .utils import (PETScMatrix_to_global_numpy, PETScVector_to_global_numpy,
-                    rigid_motions_nullspace, compare_matrices,
-                    compare_vectors, create_transformation_matrix, log_info,
-                    facet_normal_approximation, rotation_matrix,
-                    determine_closest_block, create_point_to_point_constraint, create_normal_approximation)
+from .utils import (rotation_matrix, facet_normal_approximation,
+                    gather_PETScVector, gather_PETScMatrix, compare_MPC_to_global_scipy, log_info, rigid_motions_nullspace,
+                    determine_closest_block, compare_vectors, create_normal_approximation,
+                    gather_transformation_matrix, compare_CSR)
 from .io import (read_from_msh, gmsh_model_to_mesh)
