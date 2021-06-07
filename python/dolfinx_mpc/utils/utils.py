@@ -22,8 +22,8 @@ import dolfinx.cpp
 
 
 __all__ = ["rotation_matrix", "facet_normal_approximation", "gather_PETScVector",
-           "gather_PETScMatrix", "compare_MPC_to_global_scipy", "log_info", "rigid_motions_nullspace",
-           "determine_closest_block", "compare_vectors", "create_normal_approximation",
+           "gather_PETScMatrix", "compare_MPC_LHS", "log_info", "rigid_motions_nullspace",
+           "determine_closest_block", "compare_MPC_RHS", "create_normal_approximation",
            "gather_transformation_matrix", "compare_CSR", "create_point_to_point_constraint"]
 
 
@@ -258,8 +258,8 @@ def compare_CSR(A, B, atol=1e-10):
     assert(diff.max() < atol)
 
 
-def compare_MPC_to_global_scipy(A_org: PETSc.Mat, A_mpc: PETSc.Mat,
-                                mpc: dolfinx_mpc.MultiPointConstraint, root: int = 0):
+def compare_MPC_LHS(A_org: PETSc.Mat, A_mpc: PETSc.Mat,
+                    mpc: dolfinx_mpc.MultiPointConstraint, root: int = 0):
     """
     Compare an unmodified matrix for the problem with the one assembled with a
     multi point constraint.
@@ -292,19 +292,23 @@ def compare_MPC_to_global_scipy(A_org: PETSc.Mat, A_mpc: PETSc.Mat,
     timer.stop()
 
 
-def compare_vectors(reduced_vec, vec, constraint):
+def compare_MPC_RHS(b_org: PETSc.Vec, b: PETSc.Vec, constraint: dolfinx_mpc.MultiPointConstraint, root: int = 0):
     """
-    Compare two numpy vectors of different lengths,
-    where the constraints slaves are not in the reduced vector
+    Compare an unconstrained RHS with an MPC rhs.
     """
-    global_zeros = gather_slaves_global(constraint)
-    count = 0
-    for i in range(len(vec)):
-        if i in global_zeros:
-            count += 1
-            assert np.isclose(vec[i], 0)
-        else:
-            assert(np.isclose(reduced_vec[i - count], vec[i]))
+    glob_slaves = gather_slaves_global(constraint)
+    b_org_np = dolfinx_mpc.utils.gather_PETScVector(b_org, root=root)
+    b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
+    K = gather_transformation_matrix(constraint, root=root)
+
+    comm = constraint.V.mesh.mpi_comm()
+    if comm.rank == root:
+        reduced_b = K.T @ b_org_np
+
+        all_cols = np.arange(constraint.V.dofmap.index_map.size_global * constraint.V.dofmap.index_map_bs)
+        cols_except_slaves = np.flatnonzero(np.isin(all_cols, glob_slaves, invert=True).astype(np.int32))
+        assert np.allclose(b_np[glob_slaves], 0)
+        assert np.allclose(b_np[cols_except_slaves], reduced_b)
 
 
 def log_info(message):

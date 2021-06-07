@@ -47,16 +47,6 @@ def test_mpc_assembly(master_point, degree, celltype):
     root = 0
     comm = mesh.mpi_comm()
     with dolfinx.common.Timer("~TEST: Compare"):
-
-        # Create global transformation matrix
-        K = dolfinx_mpc.utils.gather_transformation_matrix(mpc, root=root)
-        L_np = dolfinx_mpc.utils.gather_PETScVector(L_org, root=root)
-        b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
-
-        if MPI.COMM_WORLD.rank == root:
-            reduced_L = K.T @ L_np
-
-            # Compare LHS, RHS and solution with reference values
-            dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
+        dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])

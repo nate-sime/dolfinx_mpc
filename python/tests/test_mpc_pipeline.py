@@ -76,12 +76,14 @@ def test_pipeline(master_point):
     root = 0
     comm = mesh.mpi_comm()
     with dolfinx.common.Timer("~TEST: Compare"):
-        dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
+        dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
+        dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 
-        # Create global transformation matrix
+        # Gather LHS, RHS and solution on one process
         A_csr = dolfinx_mpc.utils.gather_PETScMatrix(A_org, root=root)
         K = dolfinx_mpc.utils.gather_transformation_matrix(mpc, root=root)
         L_np = dolfinx_mpc.utils.gather_PETScVector(L_org, root=root)
+        u_mpc = dolfinx_mpc.utils.gather_PETScVector(uh, root=root)
 
         if MPI.COMM_WORLD.rank == root:
             KTAK = K.T * A_csr * K
@@ -90,12 +92,6 @@ def test_pipeline(master_point):
             d = scipy.sparse.linalg.spsolve(KTAK, reduced_L)
             # Back substitution to full solution vector
             uh_numpy = K @ d
-
-        b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
-
-        if MPI.COMM_WORLD.rank == root:
-            # Compare LHS, RHS and solution with reference values
-            dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
-        assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
+            assert np.allclose(uh_numpy, u_mpc)
 
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])

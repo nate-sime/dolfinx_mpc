@@ -121,7 +121,7 @@ def test_surface_integrals():
     root = 0
     comm = mesh.mpi_comm()
     with dolfinx.common.Timer("~TEST: Compare"):
-        dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
+        dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
 
         # Create global transformation matrix
         A_csr = dolfinx_mpc.utils.gather_PETScMatrix(A_org, root=root)
@@ -215,22 +215,13 @@ def test_surface_integral_dependency():
     root = 0
     comm = mesh.mpi_comm()
     with dolfinx.common.Timer("~TEST: Compare"):
-        dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
-
-        # Create global transformation matrix
-        K = dolfinx_mpc.utils.gather_transformation_matrix(mpc, root=root)
-        L_np = dolfinx_mpc.utils.gather_PETScVector(L_org, root=root)
-
-        b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
+        dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
+        dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 
         A_mpc_cpp = dolfinx_mpc.utils.gather_PETScMatrix(Acpp, root=root)
         A_mpc_python = dolfinx_mpc.utils.gather_PETScMatrix(A, root=root)
 
         if MPI.COMM_WORLD.rank == root:
-            reduced_L = K.T @ L_np
             dolfinx_mpc.utils.compare_CSR(A_mpc_cpp, A_mpc_python)
-
-            # Compare LHS, RHS and solution with reference values
-            dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
 
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
