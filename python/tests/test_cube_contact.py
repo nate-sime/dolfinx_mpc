@@ -302,7 +302,7 @@ def test_cube_contact(generate_hex_boxes, nonslip):
         # Create global transformation matrix
         A_csr = dolfinx_mpc.utils.gather_PETScMatrix(A_org, root=root)
         K = dolfinx_mpc.utils.gather_transformation_matrix(mpc, root=root)
-        L_np = dolfinx_mpc.utils.gather_PETScVector(L_org)
+        L_np = dolfinx_mpc.utils.gather_PETScVector(L_org, root=root)
 
         if MPI.COMM_WORLD.rank == root:
             KTAK = K.T * A_csr * K
