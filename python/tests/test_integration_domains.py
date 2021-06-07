@@ -123,5 +123,5 @@ def test_cell_domains():
 
         A_mpc_cpp = dolfinx_mpc.utils.gather_PETScMatrix(Acpp, root=root)
         A_mpc_python = dolfinx_mpc.utils.gather_PETScMatrix(A, root=root)
-
+        dolfinx_mpc.utils.compare_CSR(A_mpc_cpp, A_mpc_python)
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
