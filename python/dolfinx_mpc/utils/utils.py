@@ -24,7 +24,7 @@ import dolfinx.cpp
 __all__ = ["rotation_matrix", "facet_normal_approximation", "gather_PETScVector",
            "gather_PETScMatrix", "compare_MPC_to_global_scipy", "log_info", "rigid_motions_nullspace",
            "determine_closest_block", "compare_vectors", "create_normal_approximation",
-           "gather_transformation_matrix", "compare_CSR"]
+           "gather_transformation_matrix", "compare_CSR", "create_point_to_point_constraint"]
 
 
 def rotation_matrix(axis, angle):

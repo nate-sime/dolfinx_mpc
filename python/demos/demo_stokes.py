@@ -1,9 +1,9 @@
-import dolfinx.cpp
 import dolfinx.io
 import dolfinx_mpc
 import dolfinx_mpc.utils
 import gmsh
 import numpy as np
+import scipy.sparse.linalg
 import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
@@ -215,26 +215,28 @@ with dolfinx.common.Timer("~Stokes: Verification of problem by global matrix red
     dolfinx.fem.apply_lifting(L_org, [a], [bcs])
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     dolfinx.fem.set_bc(L_org, bcs)
-    solver = PETSc.KSP().create(MPI.COMM_WORLD)
-    ksp.setType("preonly")
-    ksp.getPC().setType("lu")
-    ksp.getPC().setFactorSolverType("mumps")
-    solver.setOperators(A_org)
+    root = 0
+    comm = mesh.mpi_comm()
+    dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
 
     # Create global transformation matrix
-    K = dolfinx_mpc.utils.create_transformation_matrix(W, mpc)
-    A_global = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A_org)
-    reduced_A = np.matmul(np.matmul(K.T, A_global), K)
-    vec = dolfinx_mpc.utils.PETScVector_to_global_numpy(L_org)
-    reduced_L = np.dot(K.T, vec)
-    d = np.linalg.solve(reduced_A, reduced_L)
-    uh_numpy = np.dot(K, d)
+    A_csr = dolfinx_mpc.utils.gather_PETScMatrix(A_org, root=root)
+    K = dolfinx_mpc.utils.gather_transformation_matrix(mpc, root=root)
+    L_np = dolfinx_mpc.utils.gather_PETScVector(L_org, root=root)
 
-    # Compare LHS, RHS and solution with reference values
-    A_np = dolfinx_mpc.utils.PETScMatrix_to_global_numpy(A)
-    b_np = dolfinx_mpc.utils.PETScVector_to_global_numpy(b)
-    dolfinx_mpc.utils.compare_matrices(reduced_A, A_np, mpc)
-    dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
+    if MPI.COMM_WORLD.rank == root:
+        KTAK = K.T * A_csr * K
+        reduced_L = K.T @ L_np
+        # Solve linear system
+        d = scipy.sparse.linalg.spsolve(KTAK, reduced_L)
+        # Back substitution to full solution vector
+        uh_numpy = K @ d
+
+    b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
+
+    if MPI.COMM_WORLD.rank == root:
+        # Compare LHS, RHS and solution with reference values
+        dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
     assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
 
 # -------------------- List timings --------------------------

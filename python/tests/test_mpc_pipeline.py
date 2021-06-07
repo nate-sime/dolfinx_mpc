@@ -91,11 +91,11 @@ def test_pipeline(master_point):
             # Back substitution to full solution vector
             uh_numpy = K @ d
 
-    b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
+        b_np = dolfinx_mpc.utils.gather_PETScVector(b, root=root)
 
-    if MPI.COMM_WORLD.rank == root:
-        # Compare LHS, RHS and solution with reference values
-        dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
+        if MPI.COMM_WORLD.rank == root:
+            # Compare LHS, RHS and solution with reference values
+            dolfinx_mpc.utils.compare_vectors(reduced_L, b_np, mpc)
         assert np.allclose(uh.array, uh_numpy[uh.owner_range[0]:uh.owner_range[1]])
 
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
