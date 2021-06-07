@@ -142,7 +142,8 @@ def test_surface_integrals():
         # Compare python and C++ assembly
         A_mpc_cpp = dolfinx_mpc.utils.gather_PETScMatrix(Acpp, root=root)
         A_mpc_python = dolfinx_mpc.utils.gather_PETScMatrix(A, root=root)
-        dolfinx_mpc.utils.compare_CSR(A_mpc_cpp, A_mpc_python)
+        if MPI.COMM_WORLD.rank == root:
+            dolfinx_mpc.utils.compare_CSR(A_mpc_cpp, A_mpc_python)
     dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
 
 
