@@ -165,7 +165,7 @@ def demo_periodic3D(celltype, out_periodic):
 
     root = 0
     with dolfinx.common.Timer("~Demo: Verification"):
-        dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
+        dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
         dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 
         # Gather LHS, RHS and solution on one process

@@ -216,7 +216,7 @@ with dolfinx.common.Timer("~Stokes: Verification of problem by global matrix red
     L_org.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     dolfinx.fem.set_bc(L_org, bcs)
     root = 0
-    dolfinx_mpc.utils.compare_MPC_to_global_scipy(A_org, A, mpc, root=root)
+    dolfinx_mpc.utils.compare_MPC_LHS(A_org, A, mpc, root=root)
     dolfinx_mpc.utils.compare_MPC_RHS(L_org, b, mpc, root=root)
 
     # Gather LHS, RHS and solution on one process
