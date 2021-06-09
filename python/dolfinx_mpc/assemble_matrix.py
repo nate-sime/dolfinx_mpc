@@ -167,8 +167,9 @@ def assemble_matrix(form, constraint, bcs=[], A=None,
         for i, id in enumerate(subdomain_ids):
             cell_kernel = ufc_form.integrals(dolfinx.fem.IntegralType.cell)[i].tabulate_tensor
             active_cells = cpp_form.domains(dolfinx.fem.IntegralType.cell, id)
-            assemble_slave_cells(A.handle, cell_kernel, active_cells[numpy.isin(active_cells, slave_cells)], (pos, x_dofs, x), form_coeffs,
-                                 form_consts, permutation_info, dofs, block_size, num_dofs_per_element, mpc_data, is_bc)
+            assemble_slave_cells(A.handle, cell_kernel, active_cells[numpy.isin(active_cells, slave_cells)],
+                                 (pos, x_dofs, x), form_coeffs, form_consts, permutation_info, dofs,
+                                 block_size, num_dofs_per_element, mpc_data, is_bc)
         timer.stop()
 
     # Assemble over exterior facets
@@ -383,8 +384,8 @@ def modify_mpc_cell(A, num_dofs, block_size, Ae, local_blocks, mpc_cell):
 
 
 @numba.njit
-def assemble_exterior_slave_facets(A, kernel, mesh, coeffs, consts, perm,
-                                   dofmap, block_size, num_dofs_per_element, facet_info, mpc, is_bc, num_facets_per_cell):
+def assemble_exterior_slave_facets(A, kernel, mesh, coeffs, consts, perm, dofmap, block_size,
+                                   num_dofs_per_element, facet_info, mpc, is_bc, num_facets_per_cell):
     """Assemble MPC contributions over exterior facet integrals"""
 
     slave_cells = mpc[4]
