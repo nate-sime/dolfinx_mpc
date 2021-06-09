@@ -76,9 +76,8 @@ def assemble_vector(form, constraint,
         for i, id in enumerate(subdomain_ids):
             cell_kernel = ufc_form.integrals(dolfinx.fem.IntegralType.cell)[i].tabulate_tensor
             active_cells = cpp_form.domains(dolfinx.fem.IntegralType.cell, id)
-            slave_cell_indices = numpy.flatnonzero(numpy.isin(active_cells, slave_cells))
             with vector.localForm() as b:
-                assemble_cells(numpy.asarray(b), cell_kernel, active_cells[slave_cell_indices],
+                assemble_cells(numpy.asarray(b), cell_kernel, active_cells[numpy.isin(active_cells, slave_cells)],
                                (pos, x_dofs, x), form_coeffs, form_consts,
                                permutation_info, dofs, block_size, num_dofs_per_element, mpc_data, (bc_dofs, bc_values))
         timer.stop()

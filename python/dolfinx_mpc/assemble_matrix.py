@@ -157,9 +157,6 @@ def assemble_matrix(form, constraint, bcs=[], A=None,
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
-
-    subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)
-    num_cell_integrals = len(subdomain_ids)
     if num_cell_integrals > 0:
         timer = Timer("~MPC: Assemble matrix (cells)")
         V.mesh.topology.create_entity_permutations()
@@ -387,8 +384,8 @@ def modify_mpc_cell(A, num_dofs, block_size, Ae, local_blocks, mpc_cell):
 def assemble_exterior_slave_facets(A, kernel, mesh, coeffs, consts, perm, dofmap, block_size,
                                    num_dofs_per_element, facet_info, mpc, is_bc, num_facets_per_cell):
     """Assemble MPC contributions over exterior facet integrals"""
-
-    slave_cells = mpc[4]
+    # Unpack MPC data structures
+    (slaves_local, masters_local, coefficients, offsets, slave_cells, cell_to_slave, c_to_s_off) = mpc
 
     # Mesh data
     pos, x_dofmap, x = mesh
@@ -400,29 +397,36 @@ def assemble_exterior_slave_facets(A, kernel, mesh, coeffs, consts, perm, dofmap
     # NOTE: All cells are assumed to be of the same type
     geometry = numpy.zeros((pos[1] - pos[0], 3))
 
+    # Numpy data used in facet loop
     A_local = numpy.zeros((num_dofs_per_element * block_size,
                            num_dofs_per_element * block_size), dtype=PETSc.ScalarType)
+    is_slave = numpy.full(block_size * num_dofs_per_element, False, dtype=numpy.bool_)
 
     # Permutation info
     cell_perms, facet_perms = perm
+
     # Loop over all external facets that are active
     for i in range(facet_info.shape[0]):
         # Get facet index (local to cell) and cell index (local to process)
         local_facet, slave_cell_index = facet_info[i]
         cell_index = slave_cells[slave_cell_index]
+
+        # Get mesh geometry
         cell = pos[cell_index]
         facet_index[0] = local_facet
         num_vertices = pos[cell_index + 1] - pos[cell_index]
-        c = x_dofmap[cell:cell + num_vertices]
-        geometry[:, :] = x[c]
+        geometry[:, :] = x[x_dofmap[cell:cell + num_vertices]]
+
+        # Assemble local matrix
         A_local.fill(0.0)
         facet_perm[0] = facet_perms[cell_index * num_facets_per_cell + local_facet]
         kernel(ffi.from_buffer(A_local), ffi.from_buffer(coeffs[cell_index, :]), ffi.from_buffer(consts),
                ffi.from_buffer(geometry), ffi.from_buffer(facet_index), ffi.from_buffer(facet_perm),
                cell_perms[cell_index])
 
-        local_blocks = dofmap[num_dofs_per_element
-                              * cell_index: num_dofs_per_element * cell_index + num_dofs_per_element]
+        # Extract local blocks of dofs
+        block_pos = num_dofs_per_element * cell_index
+        local_blocks = dofmap[block_pos: block_pos + num_dofs_per_element]
 
         # Remove all contributions for dofs that are in the Dirichlet bcs
         for j in range(num_dofs_per_element):
@@ -431,14 +435,13 @@ def assemble_exterior_slave_facets(A, kernel, mesh, coeffs, consts, perm, dofmap
                     A_local[j * block_size + k, :] = 0
                     A_local[:, j * block_size + k] = 0
 
-        A_local_copy = A_local.copy()
-        #  If this slave contains a slave dof, modify local contribution
         # Find local position of slaves
-        (slaves_local, masters_local, coefficients, offsets, slave_cells, cell_to_slave, c_to_s_off) = mpc
+        A_local_copy = A_local.copy()
+
         slave_indices = cell_to_slave[c_to_s_off[slave_cell_index]: c_to_s_off[slave_cell_index + 1]]
         num_slaves = len(slave_indices)
         local_indices = numpy.full(num_slaves, -1, dtype=numpy.int32)
-        is_slave = numpy.full(block_size * num_dofs_per_element, False, dtype=numpy.bool_)
+        is_slave[:] = False
         for i in range(num_slaves):
             for j in range(num_dofs_per_element):
                 for k in range(block_size):
