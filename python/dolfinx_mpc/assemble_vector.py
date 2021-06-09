@@ -10,7 +10,7 @@ import dolfinx
 import dolfinx.common
 import dolfinx.log
 
-from .assemble_matrix import in_numpy_array, pack_facet_info
+from .assemble_matrix import pack_slave_facet_info
 from .numba_setup import PETSc, ffi
 
 Timer = dolfinx.common.Timer
@@ -58,12 +58,14 @@ def assemble_vector(form, constraint,
                             jit_parameters=jit_parameters)._cpp_object
     form_coeffs = dolfinx.cpp.fem.pack_coefficients(cpp_form)
     form_consts = dolfinx.cpp.fem.pack_constants(cpp_form)
-
     tdim = V.mesh.topology.dim
     num_dofs_per_element = V.dofmap.dof_layout.num_dofs
 
     # Assemble vector with all entries
+    # FIXME: Replace once https://github.com/FEniCS/dolfinx/pull/1564 is merged
+    # dolfinx.cpp.fem.assemble_vector(vector.array_w, cpp_form, form_consts, form_coeffs)
     dolfinx.cpp.fem.assemble_vector(vector.array_w, cpp_form)
+
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
@@ -93,13 +95,13 @@ def assemble_vector(form, constraint,
         for i, id in enumerate(subdomain_ids):
             facet_kernel = ufc_form.integrals(dolfinx.fem.IntegralType.exterior_facet)[i].tabulate_tensor
             active_facets = cpp_form.domains(dolfinx.fem.IntegralType.exterior_facet, id)
-            facet_info = pack_facet_info(V.mesh, active_facets)
+            facet_info = pack_slave_facet_info(constraint, active_facets)
             num_facets_per_cell = len(V.mesh.topology.connectivity(tdim, tdim - 1).links(0))
             with vector.localForm() as b:
-                assemble_exterior_facets(numpy.asarray(b), facet_kernel, facet_info, (pos, x_dofs, x),
-                                         form_coeffs, form_consts, (permutation_info, facet_permutation_info),
-                                         dofs, block_size, num_dofs_per_element, mpc_data, (bc_dofs, bc_values),
-                                         num_facets_per_cell)
+                assemble_exterior_slave_facets(numpy.asarray(b), facet_kernel, facet_info, (pos, x_dofs, x),
+                                               form_coeffs, form_consts, (permutation_info, facet_permutation_info),
+                                               dofs, block_size, num_dofs_per_element, mpc_data, (bc_dofs, bc_values),
+                                               num_facets_per_cell)
         timer.stop()
     timer_vector.stop()
     return vector
@@ -125,18 +127,21 @@ def assemble_cells(b, kernel, active_cells, mesh, coeffs, constants, permutation
     for slave_cell_index, cell_index in enumerate(active_cells):
         num_vertices = pos[cell_index + 1] - pos[cell_index]
         cell = pos[cell_index]
-        c = x_dofmap[cell:cell + num_vertices]
-        for j in range(num_vertices):
-            geometry[j, :] = x[c[j], :]
-        b_local.fill(0.0)
 
+        # Compute mesh geometry for cell
+        geometry[:, :] = x[x_dofmap[cell:cell + num_vertices]]
+
+        # Assemble local element vector
+        b_local.fill(0.0)
         kernel(ffi_fb(b_local), ffi_fb(coeffs[cell_index, :]),
                ffi_fb(constants), ffi_fb(geometry), ffi_fb(facet_index),
                ffi_fb(facet_perm),
                permutation_info[cell_index])
+
+        # Modify global vector and local cell contributions
         b_local_copy = b_local.copy()
-        modify_mpc_contributions_local(b, cell_index, slave_cell_index, b_local,
-                                       b_local_copy, mpc, dofmap, block_size, num_dofs_per_element)
+        modify_mpc_contributions(b, cell_index, slave_cell_index, b_local,
+                                 b_local_copy, mpc, dofmap, block_size, num_dofs_per_element)
         for j in range(num_dofs_per_element):
             for k in range(block_size):
                 position = dofmap[num_dofs_per_element * cell_index + j] * block_size + k
@@ -144,8 +149,8 @@ def assemble_cells(b, kernel, active_cells, mesh, coeffs, constants, permutation
 
 
 @numba.njit
-def assemble_exterior_facets(b, kernel, facet_info, mesh, coeffs, constants, permutation_info,
-                             dofmap, block_size, num_dofs_per_element, mpc, bcs, num_facets_per_cell):
+def assemble_exterior_slave_facets(b, kernel, facet_info, mesh, coeffs, constants, permutation_info,
+                                   dofmap, block_size, num_dofs_per_element, mpc, bcs, num_facets_per_cell):
     """Assemble additional MPC contributions for facets"""
     ffi_fb = ffi.from_buffer
     (bcs, values) = bcs
@@ -162,25 +167,26 @@ def assemble_exterior_facets(b, kernel, facet_info, mesh, coeffs, constants, per
     b_local = numpy.zeros(block_size * num_dofs_per_element, dtype=PETSc.ScalarType)
     slave_cells = mpc[4]
     for i in range(facet_info.shape[0]):
-        cell_index, local_facet = facet_info[i]
-        cell = pos[cell_index]
+        # Extract cell index (local to process) and facet index (local to cell) for kernel
+        local_facet, slave_cell_index = facet_info[i]
+        cell_index = slave_cells[slave_cell_index]
         facet_index[0] = local_facet
-        if not in_numpy_array(slave_cells, cell_index):
-            continue
-        slave_cell_index = numpy.flatnonzero(slave_cells == cell_index)[0]
+
+        # Extract cell geometry
+        cell = pos[cell_index]
         num_vertices = pos[cell_index + 1] - pos[cell_index]
-        c = x_dofmap[cell:cell + num_vertices]
-        for j in range(num_vertices):
-            geometry[j, :] = x[c[j], :]
+        geometry[:, :] = x[x_dofmap[cell:cell + num_vertices]]
+
+        # Compute local facet kernel
         b_local.fill(0.0)
         facet_perm[0] = facet_perms[cell_index * num_facets_per_cell + local_facet]
         kernel(ffi_fb(b_local), ffi_fb(coeffs[cell_index, :]), ffi_fb(constants), ffi_fb(geometry),
                ffi_fb(facet_index), ffi_fb(facet_perm), cell_perms[cell_index])
 
+        # Modify local contributions and add global MPC contributions
         b_local_copy = b_local.copy()
-
-        modify_mpc_contributions_local(b, cell_index, slave_cell_index, b_local, b_local_copy,
-                                       mpc, dofmap, block_size, num_dofs_per_element)
+        modify_mpc_contributions(b, cell_index, slave_cell_index, b_local, b_local_copy,
+                                 mpc, dofmap, block_size, num_dofs_per_element)
         for j in range(num_dofs_per_element):
             for k in range(block_size):
                 position = dofmap[num_dofs_per_element * cell_index + j] * block_size + k
@@ -188,8 +194,8 @@ def assemble_exterior_facets(b, kernel, facet_info, mesh, coeffs, constants, per
 
 
 @numba.njit(cache=True)
-def modify_mpc_contributions_local(b, cell_index, slave_cell_index, b_local, b_copy, mpc, dofmap,
-                                   block_size, num_dofs_per_element):
+def modify_mpc_contributions(b, cell_index, slave_cell_index, b_local, b_copy, mpc, dofmap,
+                             block_size, num_dofs_per_element):
     """
     Modify local entries of b_local with MPC info and add modified
     entries to global vector b.
