@@ -123,7 +123,8 @@ def assemble_matrix(form, constraint, bcs=[], A=None,
 
     # Generate ufc_form
     ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form,
-                                          form_compiler_parameters=form_compiler_parameters, jit_parameters=jit_parameters)
+                                          form_compiler_parameters=form_compiler_parameters,
+                                          jit_parameters=jit_parameters)
 
     # Generate matrix with MPC sparsity pattern
     cpp_form = dolfinx.Form(form, form_compiler_parameters=form_compiler_parameters,

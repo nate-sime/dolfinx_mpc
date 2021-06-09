@@ -50,7 +50,8 @@ def assemble_vector(form, constraint,
         vector = b
 
     ufc_form, _, _ = dolfinx.jit.ffcx_jit(V.mesh.mpi_comm(), form,
-                                          form_compiler_parameters=form_compiler_parameters, jit_parameters=jit_parameters)
+                                          form_compiler_parameters=form_compiler_parameters,
+                                          jit_parameters=jit_parameters)
 
     # Pack constants and coefficients
     cpp_form = dolfinx.Form(form, form_compiler_parameters=form_compiler_parameters,
