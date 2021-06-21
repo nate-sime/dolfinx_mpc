@@ -12,7 +12,7 @@ import dolfinx.log
 import numba
 import numpy
 import ufl
-
+import basix
 from dolfinx_mpc import cpp
 
 from .multipointconstraint import MultiPointConstraint
@@ -202,15 +202,26 @@ def assemble_matrix(form: ufl.form.Form, constraint: MultiPointConstraint,
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)
     num_cell_integrals = len(subdomain_ids)
+
+    e0 = cpp_form.function_spaces[0].element
+    e1 = cpp_form.function_spaces[1].element
+    needs_transformation_data = e0.needs_dof_transformations(
+    ) or e1.needs_dof_transformations() or cpp_form.needs_facet_permutations()
+    cell_info = numpy.array([], dtype=numpy.uint32)
+    if needs_transformation_data:
+        V.mesh.topology.create_entity_permutations()
+        cell_info = V.mesh.topology.get_cell_permutation_info()
+    if e0.needs_dof_transformations() or e1.needs_dof_transformations():
+        raise NotImplementedError("Dof transformations not implemented")
+    # FIXME: Here we need to add the apply_dof_transformation and apply_dof_transformation transpose functions
     if num_cell_integrals > 0:
         timer = Timer("~MPC: Assemble matrix (cells)")
         V.mesh.topology.create_entity_permutations()
-        permutation_info = V.mesh.topology.get_cell_permutation_info()
         for i, id in enumerate(subdomain_ids):
             cell_kernel = ufc_form.integrals(dolfinx.fem.IntegralType.cell)[i].tabulate_tensor
             active_cells = cpp_form.domains(dolfinx.fem.IntegralType.cell, id)
             assemble_slave_cells(A.handle, cell_kernel, active_cells[numpy.isin(active_cells, slave_cells)],
-                                 (pos, x_dofs, x), form_coeffs, form_consts, permutation_info, dofs,
+                                 (pos, x_dofs, x), form_coeffs, form_consts, cell_info, dofs,
                                  block_size, num_dofs_per_element, mpc_data, is_bc)
         timer.stop()
 
@@ -315,7 +326,8 @@ def assemble_slave_cells(A: int,
         # Assemble local contributions
         A_local.fill(0.0)
         kernel(ffi_fb(A_local), ffi_fb(coeffs[cell_index, :]), ffi_fb(constants), ffi_fb(geometry),
-               ffi_fb(facet_index), ffi_fb(facet_perm), permutation_info[cell_index])
+               ffi_fb(facet_index), ffi_fb(facet_perm))
+        # FIXME: Here we need to apply dof transformations
 
         # Local dof position
         local_blocks = dofmap[num_dofs_per_element
@@ -499,8 +511,8 @@ def assemble_exterior_slave_facets(A: int, kernel: ffi.CData,
         A_local.fill(0.0)
         facet_perm[0] = facet_perms[cell_index * num_facets_per_cell + local_facet]
         kernel(ffi.from_buffer(A_local), ffi.from_buffer(coeffs[cell_index, :]), ffi.from_buffer(consts),
-               ffi.from_buffer(geometry), ffi.from_buffer(facet_index), ffi.from_buffer(facet_perm),
-               cell_perms[cell_index])
+               ffi.from_buffer(geometry), ffi.from_buffer(facet_index), ffi.from_buffer(facet_perm))
+        # FIXME: Here we need to add the apply_dof_transformation and apply_dof_transformation transpose functions
 
         # Extract local blocks of dofs
         block_pos = num_dofs_per_element * cell_index
