@@ -546,7 +546,8 @@ void _assemble_matrix(
                             const std::int32_t*, const T*)>& mat_add,
     const dolfinx::fem::Form<T>& a,
     const std::shared_ptr<const dolfinx_mpc::MultiPointConstraint<T>>& mpc,
-    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs)
+    const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<T>>>& bcs,
+    const T diagval)
 {
   dolfinx::common::Timer timer_s("~MPC: Assembly (C++)");
 
@@ -582,12 +583,12 @@ void _assemble_matrix(
   assemble_matrix_impl<T>(mat_add_block, mat_add, a, dof_marker0, dof_marker1,
                           mpc);
 
-  // Add one on diagonal for slave dofs
+  // Add diagval on diagonal for slave dofs
   const xtl::span<const std::int32_t> slaves = mpc->slaves();
   const std::int32_t num_local_slaves = mpc->num_local_slaves();
   std::vector<std::int32_t> diag_dof(1);
   std::vector<T> diag_value(1);
-  diag_value[0] = 1;
+  diag_value[0] = diagval;
   for (std::int32_t i = 0; i < num_local_slaves; ++i)
   {
     diag_dof[0] = slaves[i];
@@ -604,9 +605,10 @@ void dolfinx_mpc::assemble_matrix(
     const dolfinx::fem::Form<double>& a,
     const std::shared_ptr<const dolfinx_mpc::MultiPointConstraint<double>>& mpc,
     const std::vector<std::shared_ptr<const dolfinx::fem::DirichletBC<double>>>&
-        bcs)
+        bcs,
+    const double diagval)
 {
-  _assemble_matrix(mat_add_block, mat_add, a, mpc, bcs);
+  _assemble_matrix(mat_add_block, mat_add, a, mpc, bcs, diagval);
 }
 //-----------------------------------------------------------------------------
 void dolfinx_mpc::assemble_matrix(
@@ -621,7 +623,8 @@ void dolfinx_mpc::assemble_matrix(
         const dolfinx_mpc::MultiPointConstraint<std::complex<double>>>& mpc,
     const std::vector<
         std::shared_ptr<const dolfinx::fem::DirichletBC<std::complex<double>>>>&
-        bcs)
+        bcs,
+    const std::complex<double> diagval)
 {
-  _assemble_matrix(mat_add_block, mat_add, a, mpc, bcs);
+  _assemble_matrix(mat_add_block, mat_add, a, mpc, bcs, diagval);
 }

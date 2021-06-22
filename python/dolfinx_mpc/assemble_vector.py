@@ -98,12 +98,12 @@ def assemble_vector(form: ufl.form.Form, constraint: MultiPointConstraint, b: PE
     # Check if we need facet permutations
     # FIXME: access apply_dof_transformations here
     e0 = cpp_form.function_spaces[0].element
-    needs_transformation_data = e0.needs_dof_transformations() or cpp_form.needs_facet_permutations()
+    needs_transformation_data = e0.needs_dof_transformations or cpp_form.needs_facet_permutations
     cell_info = numpy.array([], dtype=numpy.uint32)
     if needs_transformation_data:
         V.mesh.topology.create_entity_permutations()
         cell_info = V.mesh.topology.get_cell_permutation_info()
-    if e0.needs_dof_transformations():
+    if e0.needs_dof_transformations:
         raise NotImplementedError("Dof transformations not implemented")
     # Assemble over cells
     subdomain_ids = cpp_form.integral_ids(dolfinx.fem.IntegralType.cell)

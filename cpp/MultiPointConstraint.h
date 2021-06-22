@@ -312,7 +312,6 @@ private:
 
     // If the element's DOF transformations are permutations, permute the DOF
     // numbering on each cell
-    std::cout << element->needs_dof_permutations() << " HERE!\n";
     if (element->needs_dof_permutations())
     {
       const int D = topology.dim();
