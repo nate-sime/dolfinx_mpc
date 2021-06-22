@@ -27,7 +27,9 @@ jobs:
       OMPI_MCA_btl_vader_single_copy_mechanism: none
       OMPI_MCA_mpi_yield_when_idle: 1
       OMPI_MCA_hwloc_base_binding_policy: none
-
+      HDF5_MPI: "ON"
+      HDF5_DIR: "/usr/lib/x86_64-linux-gnu/hdf5/mpich/"
+      CC: mpicc
     steps:
       - uses: actions/checkout@v2
 
@@ -37,6 +39,11 @@ jobs:
           path: ./basix
           repository: FEniCS/basix
           ref: main
+
+      - name: Install h5py
+        run: |
+          export LD_LIBRARY_PATH="/usr/local/petsc/linux-gnu-real-32/lib/:/usr/lib/x86_64-linux-gnu/hdf5/mpich/:$LD_LIBRARY_PATH"
+          pip3 install --no-cache-dir --no-binary=h5py h5py
 
       - name: Install FEniCS Python components (dolfinx)
         run: |
