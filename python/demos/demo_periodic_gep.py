@@ -1,4 +1,4 @@
-# Copyright (C) 2021 fmonteghetti and Jørgen S. DOkken
+# Copyright (C) 2021 fmonteghetti and Jørgen S. Dokken
 #
 # This file is part of DOLFINX_MPC
 #
@@ -94,20 +94,21 @@ def EPS_print_results(EPS: SLEPc.EPS):
                 print0(f" {k.real:2.2e} {pad} {error:1.1e}")
 
 
-def EPS_get_spectrum(EPS: SLEPc.EPS, mpc: dolfinx_mpc.MultiPointConstraint) -> Tuple[List[complex], List[PETSc.Vec], List[PETSc.Vec]]:
+def EPS_get_spectrum(EPS: SLEPc.EPS,
+                     mpc: dolfinx_mpc.MultiPointConstraint) -> Tuple[List[complex], List[PETSc.Vec], List[PETSc.Vec]]:
     """ Retrieve eigenvalues and eigenfunctions from SLEPc EPS object.
-    Parameters
-    ----------
-    EPS
-       The SLEPc solver
-    mpc
-       The multipoint constraint
+        Parameters
+        ----------
+        EPS
+           The SLEPc solver
+        mpc
+           The multipoint constraint
 
-    Returns
-    -------
-        Tuple consisting of: List of complex converted eigenvalues,
-         lists of converted eigenvectors (real part) and (imaginary part)
-    """
+        Returns
+        -------
+            Tuple consisting of: List of complex converted eigenvalues,
+             lists of converted eigenvectors (real part) and (imaginary part)
+        """
     # Get results in lists
     eigval = [EPS.getEigenvalue(i) for i in range(EPS.getConverged())]
     eigvec_r = list()
@@ -143,11 +144,9 @@ def solve_GEP_shiftinvert(A: PETSc.Mat, B: PETSc.Mat,
     B
        The matrix B
     problem_type
-       The problem type, for options see
-       https://slepc.upv.es/slepc4py-current/docs/apiref/slepc4py.SLEPc.EPS.ProblemType-class.html 
-    solver:
-       Solver type, for options see
-       https://slepc.upv.es/slepc4py-current/docs/apiref/slepc4py.SLEPc.EPS.Type-class.html
+       The problem type, for options see: https://bit.ly/3gM5pth
+   solver:
+       Solver type, for options see: https://bit.ly/35LDcMG
     nev
         Number of requested eigenvalues.
     tol
