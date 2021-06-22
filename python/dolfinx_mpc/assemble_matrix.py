@@ -12,7 +12,6 @@ import dolfinx.log
 import numba
 import numpy
 import ufl
-import basix
 from dolfinx_mpc import cpp
 
 from .multipointconstraint import MultiPointConstraint
