@@ -230,8 +230,8 @@ class MultiPointConstraint():
         V
             The function space
         slave_master_dict
-            Nested dictionary, where the first key is the bit representing the slave dof's coordinate in the mesh. 
-            The item of this key is a dictionary, where each key of this dictionary is the bit representation 
+            Nested dictionary, where the first key is the bit representing the slave dof's coordinate in the mesh.
+            The item of this key is a dictionary, where each key of this dictionary is the bit representation
             of the master dof's coordinate, and the item the coefficient for the MPC equation.
         subspace_slave
             If using mixed or vector space, and only want to use dofs from a sub space as slave add index here
